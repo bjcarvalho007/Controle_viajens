@@ -163,7 +163,18 @@ export default function App() {
     } else {
       setBudget(0);
     }
+
+    const savedExpenses = localStorage.getItem('controle_viagens_expenses_v2');
+    if (savedExpenses) {
+      setExpenses(JSON.parse(savedExpenses));
+    }
   }, []);
+
+  useEffect(() => {
+    if (expenses.length > 0 || localStorage.getItem('controle_viagens_expenses_v2')) {
+      localStorage.setItem('controle_viagens_expenses_v2', JSON.stringify(expenses));
+    }
+  }, [expenses]);
   
   // --- INTELLIGENCE: AUTO-LOOKUP STATE FROM CITY ---
   useEffect(() => {
@@ -311,6 +322,17 @@ export default function App() {
       .filter(exp => exp.date === todayStr)
       .reduce((sum, exp) => sum + exp.amount, 0);
 
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const totalWeek = expenses
+      .filter(exp => {
+        const d = new Date(exp.date + 'T00:00:00');
+        return d >= startOfWeek && d <= today;
+      })
+      .reduce((sum, exp) => sum + exp.amount, 0);
+
     const totalMonth = expenses
       .filter(exp => {
         const d = new Date(exp.date + 'T00:00:00');
@@ -343,6 +365,7 @@ export default function App() {
       count,
       average,
       totalToday,
+      totalWeek,
       totalMonth,
       totalYear,
       projectedMonthEnd,
@@ -449,7 +472,7 @@ export default function App() {
       responsible: userData.fullName || 'Usuário do Sistema',
       responsibleRole: userData.jobTitle || 'Colaborador',
       responsibleId: userData.cpf || 'custom-usr',
-      travelNumber: newExpense.travelNumber || 'VJG-AVULSA',
+      travelNumber: newExpense.travelNumber || '',
       km: parseFloat(newExpense.km || '0'),
       expenseType: newExpense.expenseType,
       receipt: newExpense.receiptName || 'comprovante_anexado.png',
@@ -585,7 +608,7 @@ export default function App() {
         exp.city,
         exp.state,
         exp.date,
-        exp.travelNumber,
+        exp.travelNumber || "",
         exp.status
       ].map(v => typeof v === 'string' ? `"${v.replace(/"/g, '""').replace(/;/g, ',')}"` : v).join(";");
       csvContent += row + "\r\n";
@@ -1191,12 +1214,16 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 w-full md:w-auto h-full">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full md:w-auto h-full">
                     <div className="p-6 rounded-xl border border-slate-100 bg-slate-50 flex flex-col justify-between">
                       <p className="text-[10px] font-semibold text-slate-400 uppercase">Mês Atual</p>
                       <p className="text-xl font-semibold text-slate-800 mt-1">R$ {metrics.totalMonth.toLocaleString('pt-BR')}</p>
                     </div>
                     <div className="p-6 rounded-xl border border-slate-100 bg-slate-50 flex flex-col justify-between">
+                      <p className="text-[10px] font-semibold text-slate-400 uppercase">Semana</p>
+                      <p className="text-xl font-semibold text-slate-800 mt-1">R$ {metrics.totalWeek.toLocaleString('pt-BR')}</p>
+                    </div>
+                    <div className="p-6 rounded-xl border border-slate-100 bg-slate-50 flex flex-col justify-between col-span-2 md:col-span-1">
                       <p className="text-[10px] font-semibold text-slate-400 uppercase">Hoje</p>
                       <p className="text-xl font-semibold text-slate-800 mt-1">R$ {metrics.totalToday.toLocaleString('pt-BR')}</p>
                     </div>
@@ -1475,6 +1502,20 @@ export default function App() {
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Quantidade *</label>
                   <input type="number" required value={newExpense.quantity} onChange={e => setNewExpense({...newExpense, quantity: e.target.value})} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Data do Gasto *</label>
+                  <input type="date" required value={newExpense.date} onChange={e => setNewExpense({...newExpense, date: e.target.value})} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Hora do Gasto *</label>
+                  <input type="time" required value={newExpense.time} onChange={e => setNewExpense({...newExpense, time: e.target.value})} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Forma de Pagamento *</label>
+                  <select required value={newExpense.paymentMethod} onChange={e => setNewExpense({...newExpense, paymentMethod: e.target.value})} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium appearance-none">
+                    {PAYMENTS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Categoria *</label>
