@@ -1,6 +1,6 @@
 {
-  "name": "Travel Control",
-  "description": "Professional corporate travel expense monitoring system with predictive analysis and dynamic dashboards.",
+  "name": "Controle de Viagem",
+  "description": "Sistema profissional de monitoramento de despesas de viagem corporativa com análise preditiva e dashboards dinâmicos.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
