@@ -70,7 +70,7 @@ const CATEGORIES = [
   'Pedágio',
   'Manutenção',
   'Ferramentas',
-  'Materiais',
+  'Estoque',
   'Emergências',
   'Transporte',
   'Outros'
