@@ -1,0 +1,8 @@
+{
+  "name": "Travel Control",
+  "description": "Professional corporate travel expense monitoring system with predictive analysis and dynamic dashboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
