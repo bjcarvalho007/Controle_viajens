@@ -83,14 +83,6 @@ const PAYMENTS = [
   'Sem Parar / Corporativo'
 ];
 
-const COST_CENTERS = [
-  'Comercial - 102',
-  'Operações - 304',
-  'Auditoria - 401',
-  'Diretoria - 101',
-  'TI & Infraestrutura - 202'
-];
-
 export default function App() {
   // --- ESTADOS DE USUÁRIO ÚNICO ---
   const [userData, setUserData] = useState({
@@ -142,13 +134,12 @@ export default function App() {
     amount: '',
     quantity: '1',
     paymentMethod: 'Cartão Corporativo',
-    vendor: '',
+    establishment: '',
     city: '',
     state: '',
     date: new Date().toISOString().split('T')[0],
     time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
     notes: '',
-    costCenter: 'Comercial - 102',
     travelNumber: '',
     km: '0',
     expenseType: 'Viagem Nacional',
@@ -278,7 +269,7 @@ export default function App() {
     return expenses.filter(exp => {
       const searchMatch = 
         exp.productName.toLowerCase().includes(filterSearch.toLowerCase()) ||
-        exp.vendor.toLowerCase().includes(filterSearch.toLowerCase()) ||
+        exp.establishment.toLowerCase().includes(filterSearch.toLowerCase()) ||
         exp.travelNumber.toLowerCase().includes(filterSearch.toLowerCase()) ||
         exp.id.toLowerCase().includes(filterSearch.toLowerCase());
 
@@ -449,7 +440,7 @@ export default function App() {
       amount: parseCurrencyToNumber(newExpense.amount),
       quantity: parseInt(newExpense.quantity || '1'),
       paymentMethod: newExpense.paymentMethod,
-      vendor: newExpense.vendor || 'Não informado',
+      establishment: newExpense.establishment || 'Não informado',
       city: newExpense.city,
       state: newExpense.state.toUpperCase() || 'UF',
       date: newExpense.date,
@@ -458,7 +449,6 @@ export default function App() {
       responsible: userData.fullName || 'Usuário do Sistema',
       responsibleRole: userData.jobTitle || 'Colaborador',
       responsibleId: userData.cpf || 'custom-usr',
-      costCenter: newExpense.costCenter,
       travelNumber: newExpense.travelNumber || 'VJG-AVULSA',
       km: parseFloat(newExpense.km || '0'),
       expenseType: newExpense.expenseType,
@@ -477,13 +467,12 @@ export default function App() {
       amount: '',
       quantity: '1',
       paymentMethod: 'Cartão Corporativo',
-      vendor: '',
+      establishment: '',
       city: '',
       state: '',
       date: new Date().toISOString().split('T')[0],
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
       notes: '',
-      costCenter: 'Comercial - 102',
       travelNumber: '',
       km: '0',
       expenseType: 'Viagem Nacional',
@@ -529,7 +518,7 @@ export default function App() {
             setNewExpense(prev => ({
               ...prev,
               productName: data.productName || prev.productName,
-              vendor: data.vendor || prev.vendor,
+              establishment: data.vendor || prev.establishment,
               amount: data.amount ? formatCurrency((data.amount * 100).toString()) : prev.amount,
               city: data.city || prev.city,
               state: data.state || prev.state,
@@ -568,19 +557,21 @@ export default function App() {
 
   // --- EXPORTAÇÕES ---
   const exportToExcel = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
+    // Add UTF-8 BOM to ensure Excel reads special characters correctly (like ÇÃO)
+    const BOM = "\uFEFF";
+    let csvContent = BOM;
     
     // Header Metadata
-    csvContent += "RELATORIO CORPORATIVO DE DESPESAS\r\n";
+    csvContent += "RELATÓRIO CORPORATIVO DE DESPESAS\r\n";
     csvContent += `COLABORADOR:;${userData.fullName}\r\n`;
     csvContent += `CPF:;${userData.cpf}\r\n`;
     csvContent += `CARGO:;${userData.jobTitle}\r\n`;
-    csvContent += `PERIODO DO RELATORIO:;${new Date().toLocaleDateString('pt-BR')}\r\n`;
+    csvContent += `PERÍODO DO RELATÓRIO:;${new Date().toLocaleDateString('pt-BR')}\r\n`;
     csvContent += `SALDO TOTAL UTILIZADO:;R$ ${metrics.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\r\n`;
     csvContent += "\r\n";
 
     // Table Header
-    csvContent += "ID;Produto/Servico;Categoria;Valor;Quantidade;Forma de Pagamento;Fornecedor;Cidade;UF;Data;Centro de Custo;Viagem;Status\r\n";
+    csvContent += "ID;Produto/Serviço;Categoria;Valor;Quantidade;Forma de Pagamento;Estabelecimento;Cidade;UF;Data;Viagem;Status\r\n";
     
     filteredExpenses.forEach(exp => {
       const row = [
@@ -590,25 +581,26 @@ export default function App() {
         exp.amount,
         exp.quantity,
         exp.paymentMethod,
-        exp.vendor,
+        exp.establishment,
         exp.city,
         exp.state,
         exp.date,
-        exp.costCenter,
         exp.travelNumber,
         exp.status
-      ].map(v => typeof v === 'string' ? `"${v.replace(/"/g, '""')}"` : v).join(";");
+      ].map(v => typeof v === 'string' ? `"${v.replace(/"/g, '""').replace(/;/g, ',')}"` : v).join(";");
       csvContent += row + "\r\n";
     });
 
-    const encodedUri = encodeURI(csvContent);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Relatorio_Despesas_${userData.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `TravelControl_Relatorio_${userData.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showToast('Planilha profissional gerada com os seus dados!', 'success');
+    URL.revokeObjectURL(url);
+    showToast('Planilha profissional gerada com sucesso!', 'success');
   };
 
   const exportToPDF = () => {
@@ -618,45 +610,120 @@ export default function App() {
   return (
     <div className={`min-h-screen font-sans transition-colors duration-300 ${isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       
-      {/* HEADER PROFISSIONAL PARA IMPRESSÃO (PDF) - Oculto na tela */}
-      <div className="hidden print:block p-8 border-b-2 border-slate-900 mb-8">
-        <div className="flex justify-between items-start mb-6">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-blue-900 text-white flex items-center justify-center rounded-2xl">
-              <Briefcase className="w-8 h-8" />
+      <div className="hidden print:block p-12 bg-white">
+        <div className="flex justify-between items-start mb-10 pb-10 border-b-4 border-blue-900">
+          <div className="flex items-center gap-6">
+            <div className="w-20 h-20 bg-blue-900 text-white flex items-center justify-center rounded-[2rem] shadow-xl">
+              <Briefcase className="w-10 h-10" />
             </div>
             <div>
-              <h1 className="text-2xl font-black uppercase tracking-tighter text-blue-900">Relatório de Despesas Corporativas</h1>
-              <p className="text-sm font-bold text-slate-500 uppercase tracking-widest leading-3 mt-1">Travel Control - Financial Intelligence</p>
+              <h1 className="text-4xl font-extrabold uppercase tracking-tight text-blue-900 font-display">Relatório Executivo</h1>
+              <p className="text-sm font-black text-slate-500 uppercase tracking-[0.3em] mt-1">Travel Control • Financial Intelligence</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-[10px] font-bold text-slate-400 uppercase">Documento Gerado em</p>
-            <p className="text-sm font-black text-slate-900">{new Date().toLocaleString('pt-BR')}</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Protocolo de Emissão</p>
+            <p className="text-lg font-black text-slate-900 font-display">#{Math.floor(Math.random() * 1000000)}</p>
+            <p className="text-xs font-bold text-slate-500 mt-1">{new Date().toLocaleString('pt-BR')}</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-8 p-6 bg-slate-50 rounded-2xl border border-slate-200">
-          <div className="space-y-2">
+        <div className="grid grid-cols-3 gap-12 p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 shadow-inner mb-12">
+          <div className="space-y-4">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Dados do Colaborador</p>
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Colaborador Responsável</p>
-              <p className="text-base font-black text-slate-900 leading-tight">{userData.fullName}</p>
+              <p className="text-xl font-extrabold text-slate-900 leading-tight font-display">{userData.fullName}</p>
+              <p className="text-xs font-bold text-slate-500 mt-1 uppercase tracking-tight">{userData.jobTitle}</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">CPF</p>
-                <p className="text-sm font-bold text-slate-700 leading-tight">{userData.cpf}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Cargo / Função</p>
-                <p className="text-sm font-bold text-slate-700 leading-tight">{userData.jobTitle}</p>
-              </div>
+            <div className="pt-2 border-t border-slate-200">
+              <p className="text-[10px] font-bold text-slate-400 uppercase">IDENTIFICAÇÃO (CPF)</p>
+              <p className="text-sm font-black text-slate-700">{userData.cpf}</p>
             </div>
           </div>
-          <div className="text-right flex flex-col justify-center border-l border-slate-200 pl-8">
-            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Prestação de Contas</p>
-            <p className="text-3xl font-black text-blue-900">R$ {metrics.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-            <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-wider">{filteredExpenses.length} Comprovantes Lançados</p>
+          
+          <div className="space-y-4 border-l border-slate-200 pl-12">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Status de Auditoria</p>
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+              <span className="text-sm font-black text-emerald-700 uppercase tracking-widest">VALIDADO PELA IA</span>
+            </div>
+            <div className="pt-2">
+              <p className="text-[10px] font-bold text-slate-400 uppercase">Período Fiscal</p>
+              <p className="text-sm font-black text-slate-700 uppercase">{new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(new Date())}</p>
+            </div>
+          </div>
+
+          <div className="text-right flex flex-col justify-center border-l border-slate-200 pl-12">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Total Consolidado</p>
+            <p className="text-5xl font-extrabold text-blue-900 font-display tracking-tighter">R$ {metrics.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+            <p className="text-[11px] font-black text-blue-700/60 mt-2 uppercase tracking-widest">{filteredExpenses.length} Documentos Fiscais</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="h-px bg-slate-200 grow"></div>
+            <h2 className="text-xs font-black uppercase tracking-[0.4em] text-slate-400 whitespace-nowrap">Detalhamento das Operações</h2>
+            <div className="h-px bg-slate-200 grow"></div>
+          </div>
+
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-900 text-white uppercase font-black text-[9px] tracking-widest">
+                <th className="p-4 rounded-tl-2xl">Data</th>
+                <th className="p-4">Item / Estabelecimento</th>
+                <th className="p-5">Categoria</th>
+                <th className="p-4 text-right">Valor Unit.</th>
+                <th className="p-4 text-center">Qtd</th>
+                <th className="p-4 text-right rounded-tr-2xl">V. Total</th>
+              </tr>
+            </thead>
+            <tbody className="text-[10px]">
+              {filteredExpenses.map((exp, idx) => (
+                <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} border-b border-slate-100`}>
+                  <td className="p-4 font-bold text-slate-400 whitespace-nowrap">{new Date(exp.date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                  <td className="p-4">
+                    <p className="font-extrabold text-slate-900 uppercase">{exp.productName}</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">{exp.establishment}</p>
+                  </td>
+                  <td className="p-4">
+                    <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[8px] font-black uppercase text-blue-900">{exp.category}</span>
+                  </td>
+                  <td className="p-4 text-right font-medium text-slate-600">R$ {(exp.amount / exp.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                  <td className="p-4 text-center font-bold text-slate-900">{exp.quantity}</td>
+                  <td className="p-4 text-right font-black text-slate-900">R$ {exp.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-900 text-white">
+                <td colSpan={5} className="p-5 text-right font-black uppercase text-[10px] tracking-widest rounded-bl-2xl">Total Destinado a Reembolso / Débito</td>
+                <td className="p-5 text-right font-extrabold text-xl font-display rounded-br-2xl">R$ {metrics.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <div className="mt-24 grid grid-cols-2 gap-32">
+            <div className="space-y-12">
+               <div className="h-px bg-slate-400 w-full mb-4"></div>
+               <div className="text-center">
+                 <p className="text-xs font-black uppercase text-slate-900">{userData.fullName}</p>
+                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Assinatura do Colaborador</p>
+                 <p className="text-[8px] text-slate-300 mt-0.5 whitespace-nowrap">Certificando a veracidade das informações apresentadas</p>
+               </div>
+            </div>
+            <div className="space-y-12">
+               <div className="h-px bg-slate-400 w-full mb-4"></div>
+               <div className="text-center">
+                 <p className="text-xs font-black uppercase text-slate-900">Diretoria de Compliance</p>
+                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Aprovação / Carimbo</p>
+                 <p className="text-[8px] text-slate-300 mt-0.5">Reservado para validação do setor financeiro</p>
+               </div>
+            </div>
+          </div>
+          
+          <div className="mt-20 pt-10 border-t border-slate-100 text-center">
+            <p className="text-[8px] font-bold text-slate-300 uppercase tracking-[0.5em]">Travel Control System • Generated via Enterprise Enterprise Portal</p>
           </div>
         </div>
       </div>
@@ -943,11 +1010,11 @@ export default function App() {
       }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-900 flex items-center justify-center text-white shadow-lg">
+            <div className="flex items-center gap-3 group">
+              <div className="w-10 h-10 rounded-xl bg-blue-900 flex items-center justify-center text-white shadow-lg group-hover:scale-105 transition-transform duration-300">
                 <Briefcase className="w-5 h-5" />
               </div>
-              <span className="font-bold text-xl tracking-tight text-blue-900 dark:text-blue-400">
+              <span className="font-display font-extrabold text-2xl tracking-tight text-blue-900 dark:text-blue-400">
                 Travel <span className="text-blue-700">Control</span>
               </span>
             </div>
@@ -957,11 +1024,11 @@ export default function App() {
                 <button 
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  className={`px-5 py-2.5 rounded-xl text-sm font-semibold tracking-tight font-display transition-all ${
                     activeTab === tab 
-                      ? 'bg-blue-900 text-white' 
+                      ? 'bg-blue-900 text-white shadow-md' 
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  } ${tab === 'painel-gestor' && activeTab !== tab ? 'border-l border-slate-200 dark:border-slate-800 ml-2 pl-4 text-blue-700' : ''}`}
+                  } ${tab === 'painel-gestor' && activeTab !== tab ? 'border-l border-slate-200 dark:border-slate-800 ml-4 pl-6 text-blue-700 font-bold' : ''}`}
                 >
                   {tab.charAt(0).toUpperCase() + tab.slice(1).replace('-', ' ')}
                 </button>
@@ -1035,13 +1102,13 @@ export default function App() {
               <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-blue-50 dark:bg-blue-900/10 rounded-full blur-3xl opacity-50"></div>
               <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/50 text-[10px] font-black uppercase tracking-widest text-blue-900 dark:text-blue-400 mb-4 border border-blue-100 dark:border-blue-900/50">
-                    <Shield className="w-3 h-3" /> Monitoramento em Tempo Real
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/50 text-xs font-bold uppercase tracking-widest text-blue-900 dark:text-blue-400 mb-5 border border-blue-100 dark:border-blue-900/50 shadow-sm">
+                    <Shield className="w-3.5 h-3.5" /> Monitoramento em Tempo Real
                   </div>
-                  <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-2 text-slate-900 dark:text-white leading-none">
+                  <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-3 text-slate-900 dark:text-white leading-[1.1] font-display">
                     Análise <span className="text-blue-900 dark:text-blue-400">Financeira</span>
                   </h2>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md font-medium">
+                  <p className="text-base text-slate-500 dark:text-slate-400 max-w-lg font-medium leading-relaxed">
                     Relatório dinâmico de despesas corporativas para <span className="text-slate-900 dark:text-white font-bold">{userData.fullName || 'Colaborador'}</span>.
                   </p>
                 </div>
@@ -1076,7 +1143,10 @@ export default function App() {
                     <button onClick={exportToExcel} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 transition-all shadow-sm">
                       <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" /> Planilha
                     </button>
-                    <button onClick={() => setActiveTab('cadastrar')} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold shadow-lg bg-blue-900 text-white hover:bg-blue-800 transition-all">
+                    <button onClick={exportToPDF} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 transition-all shadow-sm">
+                      <FileText className="w-3.5 h-3.5 text-blue-900" /> PDF
+                    </button>
+                    <button onClick={() => setActiveTab('cadastrar')} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold shadow-lg bg-blue-900 text-white hover:bg-blue-800 transition-all font-display">
                       <Plus className="w-3.5 h-3.5" /> Novo Registro
                     </button>
                   </div>
@@ -1092,34 +1162,34 @@ export default function App() {
                 <div className="relative z-10 flex flex-col h-full justify-between gap-8">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200/60 mb-1">Status de Disponibilidade</p>
-                      <h3 className="text-xl font-bold flex items-center gap-2 text-white">
-                        {metrics.availableBalance < 0 ? <AlertTriangle className="w-5 h-5 text-red-400" /> : <Shield className="w-5 h-5 text-emerald-400" />}
+                      <p className="text-[11px] font-black uppercase tracking-[0.25em] text-blue-100/70 mb-2">Status de Disponibilidade</p>
+                      <h3 className="text-2xl font-bold flex items-center gap-2.5 text-white font-display">
+                        {metrics.availableBalance < 0 ? <AlertTriangle className="w-6 h-6 text-red-300" /> : <Shield className="w-6 h-6 text-emerald-300" />}
                         Saldo Disponível
                       </h3>
                     </div>
-                    <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md">
-                      <DollarSign className="w-6 h-6 text-white" />
+                    <div className="p-4 bg-white/10 rounded-2xl backdrop-blur-md border border-white/10 shadow-inner">
+                      <DollarSign className="w-7 h-7 text-white" />
                     </div>
                   </div>
                   
                   <div>
-                    <h4 className="text-4xl md:text-5xl font-black tracking-tighter mb-4 text-white">
+                    <h4 className="text-5xl md:text-6xl font-extrabold tracking-tighter mb-5 text-white font-display">
                       R$ {metrics.availableBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </h4>
-                    <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden backdrop-blur-md border border-white/10">
+                    <div className="w-full bg-white/15 rounded-full h-3 overflow-hidden backdrop-blur-md border border-white/5">
                       <motion.div 
                         initial={{ width: 0 }}
                         animate={{ width: `${Math.min(100, Math.max(0, 100 - metrics.budgetSpentPercentage))}%` }}
-                        transition={{ duration: 1, ease: 'easeOut' }}
+                        transition={{ duration: 1.2, ease: [0.34, 1.56, 0.64, 1] }}
                         className={`h-full ${metrics.availableBalance < 0 ? 'bg-red-400' : 'bg-emerald-400'}`}
                       />
                     </div>
-                    <div className="flex justify-between mt-3">
-                      <p className="text-[10px] font-bold text-blue-200 uppercase tracking-widest">{metrics.budgetSpentPercentage.toFixed(1)}% Consumido</p>
+                    <div className="flex justify-between mt-4">
+                      <p className="text-xs font-bold text-blue-100 uppercase tracking-widest">{metrics.budgetSpentPercentage.toFixed(1)}% Consumido</p>
                       <button 
                          onClick={() => { setBudgetInput(formatCurrency((budget * 100).toString())); setIsEditingBudget(true); }}
-                         className="text-[10px] font-black bg-white text-blue-900 px-3 py-1 rounded-full uppercase hover:scale-105 transition-transform"
+                         className="text-[10px] font-black bg-white text-blue-900 px-4 py-1.5 rounded-full uppercase hover:shadow-lg hover:-translate-y-0.5 transition-all"
                       >
                         Ajustar Teto
                       </button>
@@ -1137,9 +1207,9 @@ export default function App() {
                   <TrendingUp className="w-4 h-4 text-slate-300" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">Fluxo Diário</p>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Gasto Hoje</h3>
-                  <p className="text-3xl font-black text-blue-900 dark:text-blue-400 tracking-tighter">
+                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1.5">Fluxo Diário</p>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-2 font-display">Gasto Hoje</h3>
+                  <p className="text-4xl font-extrabold text-blue-900 dark:text-blue-400 tracking-tighter font-display">
                     R$ {metrics.totalToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
@@ -1156,9 +1226,9 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">Mensal Consolidado</p>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Gasto Mês Atual</h3>
-                  <p className="text-3xl font-black text-blue-900 dark:text-blue-400 tracking-tighter">
+                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1.5">Mensal Consolidado</p>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-2 font-display">Gasto Mês Atual</h3>
+                  <p className="text-4xl font-extrabold text-blue-900 dark:text-blue-400 tracking-tighter font-display">
                     R$ {metrics.totalMonth.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
@@ -1172,19 +1242,19 @@ export default function App() {
                     <TrendingUp className={`w-8 h-8 ${metrics.projectedMonthEnd > budget && budget > 0 ? 'text-red-500' : 'text-emerald-500'}`} />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1 font-bold">Previsão Inteligente</p>
-                    <h3 className="text-base font-bold text-slate-900 dark:text-white">Projeção Final do Mês</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Baseado no ritmo atual de {metrics.count} lançamentos.</p>
+                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1 font-bold">Previsão Inteligente</p>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white font-display">Projeção Final do Mês</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium tracking-tight">Baseado no ritmo atual de {metrics.count} lançamentos.</p>
                   </div>
                 </div>
 
                 <div className="w-full md:w-px h-px md:h-12 bg-slate-200 dark:bg-slate-800"></div>
 
                 <div className="flex flex-col items-center md:items-end w-full md:w-auto relative z-10">
-                  <p className="text-4xl font-black text-blue-900 dark:text-white tracking-tighter">
+                  <p className="text-5xl font-extrabold text-blue-900 dark:text-white tracking-tighter font-display leading-none">
                     R$ {metrics.projectedMonthEnd.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </p>
-                  <p className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full mt-2 inline-block ${metrics.projectedMonthEnd > budget && budget > 0 ? 'bg-red-100 dark:bg-red-950/50 text-red-700 dark:text-red-400' : 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400'}`}>
+                  <p className={`text-[11px] font-black uppercase tracking-[0.15em] px-4 py-1.5 rounded-full mt-4 inline-block shadow-sm ${metrics.projectedMonthEnd > budget && budget > 0 ? 'bg-red-100 dark:bg-red-950/50 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/30' : 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/30'}`}>
                     {metrics.projectedMonthEnd > budget && budget > 0 ? 'Risco de Estouro' : 'Dentro do Orçamento'}
                   </p>
                 </div>
@@ -1243,7 +1313,7 @@ export default function App() {
 
                 <div className="flex flex-col items-center">
                   <div className="relative w-44 h-44 flex items-center justify-center">
-                    <svg className="w-full h-full transform -rotate-90">
+                    <svg className="w-full h-full transform -rotate-90 drop-shadow-sm">
                       <circle cx="88" cy="88" r="80" strokeWidth="12" fill="none" className="stroke-slate-50 dark:stroke-slate-800/50" />
                       <motion.circle 
                         cx="88" cy="88" r="80" 
@@ -1256,8 +1326,8 @@ export default function App() {
                       />
                     </svg>
                     <div className="absolute flex flex-col items-center">
-                      <span className="text-4xl font-black tracking-tighter">{Math.round(metrics.budgetSpentPercentage)}%</span>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-3">Consumido</span>
+                      <span className="text-5xl font-extrabold tracking-tighter font-display leading-none">{Math.round(metrics.budgetSpentPercentage)}%</span>
+                      <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest leading-3 mt-2">Consumido</span>
                     </div>
                   </div>
 
@@ -1296,15 +1366,15 @@ export default function App() {
         {activeTab === 'despesas' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
-              <h1 className="text-2xl font-black">Minhas Despesas</h1>
-              <div className="relative w-full sm:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <h1 className="text-3xl font-extrabold tracking-tight font-display">Minhas Despesas</h1>
+              <div className="relative w-full sm:w-96 group">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400 group-focus-within:text-blue-900 transition-colors" />
                 <input 
                   type="text" 
-                  placeholder="Filtrar por descrição, local ou categoria..." 
+                  placeholder="Pesquisar por descrição, local ou categoria..." 
                   value={filterSearch}
                   onChange={e => setFilterSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 rounded-2xl border bg-white dark:bg-slate-900 border-slate-200 text-xs outline-none focus:ring-2 focus:ring-blue-900 shadow-sm"
+                  className="w-full pl-12 pr-4 py-3.5 rounded-2xl border bg-white dark:bg-slate-900 border-slate-200 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-all shadow-sm"
                 />
                 {filterSearch && (
                   <button onClick={() => setFilterSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
@@ -1321,8 +1391,7 @@ export default function App() {
                     <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-black uppercase tracking-[0.1em] border-b border-slate-100 dark:border-slate-800">
                       <th className="p-5 font-black">ID</th>
                       <th className="p-5">Detalhamento</th>
-                      <th className="p-5">Localidade</th>
-                      <th className="p-5">C. Custo</th>
+                      <th className="p-5">Estabelecimento / Local</th>
                       <th className="p-5 text-right">Montante</th>
                       <th className="p-5 text-center">Status</th>
                       <th className="p-5 text-center">Ação</th>
@@ -1337,13 +1406,10 @@ export default function App() {
                           <p className="text-[10px] text-blue-900 dark:text-blue-400 font-black uppercase tracking-widest mt-0.5">{exp.category}</p>
                         </td>
                         <td className="p-5">
-                          <p className="font-semibold text-slate-700 dark:text-slate-300">{exp.vendor}</p>
+                          <p className="font-semibold text-slate-700 dark:text-slate-300">{exp.establishment}</p>
                           <p className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
                             <MapPin className="w-2.5 h-2.5" /> {exp.city}, {exp.state}
                           </p>
-                        </td>
-                        <td className="p-5">
-                          <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-md text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">{exp.costCenter}</span>
                         </td>
                         <td className="p-5 text-right font-black text-sm text-slate-900 dark:text-white">
                           R$ {exp.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -1378,19 +1444,19 @@ export default function App() {
 
         {/* CADASTRAR */}
         {activeTab === 'cadastrar' && (
-          <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="max-w-3xl mx-auto">
-            <div className="mb-6">
-              <h1 className="text-2xl font-black">Registrar Nova Compra</h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Insira os detalhes técnicos do gasto corporativo.</p>
+          <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="max-w-3xl mx-auto pb-10">
+            <div className="mb-8">
+              <h1 className="text-3xl font-extrabold tracking-tight font-display">Registrar Transação</h1>
+              <p className="text-sm text-slate-600 dark:text-slate-400 font-medium">Insira os detalhes técnicos do gasto corporativo para processamento.</p>
             </div>
-            <form onSubmit={handleSubmitExpense} className={`p-8 rounded-2xl border space-y-6 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2 space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Descrição do Item *</label>
-                  <input required placeholder="Ex: Almoço Cliente, Hotel, Táxi..." value={newExpense.productName} onChange={e => setNewExpense({...newExpense, productName: e.target.value})} className="w-full px-4 py-2.5 rounded-xl border bg-transparent text-sm text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-900" />
+            <form onSubmit={handleSubmitExpense} className={`p-10 rounded-[2rem] border shadow-2xl shadow-blue-900/5 space-y-8 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="md:col-span-2 space-y-2">
+                  <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1">Descrição do Item *</label>
+                  <input required placeholder="Ex: Almoço Cliente, Hotel, Táxi..." value={newExpense.productName} onChange={e => setNewExpense({...newExpense, productName: e.target.value})} className="w-full px-5 py-3.5 rounded-2xl border bg-slate-50/50 dark:bg-slate-800/20 text-sm text-slate-900 dark:text-white border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-all outline-none font-medium" />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Valor Total (R$) *</label>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1">Valor Total (R$) *</label>
                   <input 
                     type="text" 
                     required 
@@ -1400,45 +1466,45 @@ export default function App() {
                       const formatted = formatCurrency(e.target.value);
                       setNewExpense({...newExpense, amount: formatted});
                     }} 
-                    className="w-full px-4 py-2.5 rounded-xl border bg-transparent text-sm text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-900 font-bold" 
+                    className="w-full px-5 py-3.5 rounded-2xl border bg-slate-50/50 dark:bg-slate-800/30 text-base text-blue-900 dark:text-blue-400 border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-all outline-none font-extrabold tracking-tight" 
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Quantidade *</label>
-                  <input type="number" required value={newExpense.quantity} onChange={e => setNewExpense({...newExpense, quantity: e.target.value})} className="w-full px-4 py-2.5 rounded-xl border bg-transparent text-sm text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-900" />
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1">Quantidade *</label>
+                  <input type="number" required value={newExpense.quantity} onChange={e => setNewExpense({...newExpense, quantity: e.target.value})} className="w-full px-5 py-3.5 rounded-2xl border bg-slate-50/50 dark:bg-slate-800/20 text-sm text-slate-900 dark:text-white border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-all outline-none font-bold" />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Categoria *</label>
-                  <select value={newExpense.category} onChange={e => setNewExpense({...newExpense, category: e.target.value})} className="w-full px-4 py-2.5 rounded-xl border bg-transparent text-sm text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-900">
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1">Categoria *</label>
+                  <select value={newExpense.category} onChange={e => setNewExpense({...newExpense, category: e.target.value})} className="w-full px-5 py-3.5 rounded-2xl border bg-slate-50/50 dark:bg-slate-800/20 text-sm text-slate-900 dark:text-white border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-all outline-none font-bold appearance-none">
+                    {CATEGORIES.map(c => <option key={c} value={c} className="text-slate-900">{c}</option>)}
                   </select>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Local / Fornecedor *</label>
-                  <input required placeholder="Ex: Restaurante do Porto" value={newExpense.vendor} onChange={e => setNewExpense({...newExpense, vendor: e.target.value})} className="w-full px-4 py-2.5 rounded-xl border bg-transparent text-sm text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-900" />
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1">Local / Estabelecimento *</label>
+                  <input required placeholder="Ex: Restaurante do Porto" value={newExpense.establishment} onChange={e => setNewExpense({...newExpense, establishment: e.target.value})} className="w-full px-5 py-3.5 rounded-2xl border bg-slate-50/50 dark:bg-slate-800/20 text-sm text-slate-900 dark:text-white border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-all outline-none font-medium" />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Cidade de Origem *</label>
-                  <input required placeholder="Cidade" value={newExpense.city} onChange={e => setNewExpense({...newExpense, city: e.target.value})} className="w-full px-4 py-2.5 rounded-xl border bg-transparent text-sm text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-900" />
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1">Cidade de Origem *</label>
+                  <input required placeholder="Cidade" value={newExpense.city} onChange={e => setNewExpense({...newExpense, city: e.target.value})} className="w-full px-5 py-3.5 rounded-2xl border bg-slate-50/50 dark:bg-slate-800/20 text-sm text-slate-900 dark:text-white border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-all outline-none font-medium" />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">UF *</label>
-                  <input required maxLength={2} placeholder="UF" value={newExpense.state} onChange={e => setNewExpense({...newExpense, state: e.target.value})} className="w-full px-4 py-2.5 rounded-xl border bg-transparent text-sm text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-900" />
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1">UF *</label>
+                  <input required maxLength={2} placeholder="UF" value={newExpense.state} onChange={e => setNewExpense({...newExpense, state: e.target.value})} className="w-full px-5 py-3.5 rounded-2xl border bg-slate-50/50 dark:bg-slate-800/20 text-sm text-slate-900 dark:text-white border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-all outline-none font-bold text-center" />
                 </div>
-                <div className="md:col-span-2 space-y-1.5 relative">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Anexar Comprovante (Obrigatório)</label>
-                  <label className={`flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${
-                    isScanning ? 'border-blue-500 bg-blue-50 animate-pulse' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                <div className="md:col-span-2 space-y-2 relative">
+                  <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest pl-1">Anexar Comprovante (Obrigatório)</label>
+                  <label className={`flex flex-col items-center justify-center p-10 border-2 border-dashed rounded-[1.5rem] cursor-pointer transition-all ${
+                    isScanning ? 'border-blue-500 bg-blue-50/50 animate-pulse' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50'
                   }`}>
                     {isScanning ? (
                       <div className="flex flex-col items-center">
-                        <div className="w-8 h-8 border-4 border-blue-900 border-t-transparent rounded-full animate-spin mb-2"></div>
-                        <span className="text-xs font-black text-blue-900">IA LENDO RECIBO...</span>
+                        <div className="w-10 h-10 border-4 border-blue-900 border-t-transparent rounded-full animate-spin mb-3"></div>
+                        <span className="text-[11px] font-black text-blue-900 tracking-widest">IA LENDO RECIBO...</span>
                       </div>
                     ) : (
                       <>
-                        <Camera className="w-8 h-8 text-slate-400 mb-2" />
-                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{newExpense.receiptName || 'Clique para Smart Scan (IA) ou Arraste o PDF'}</span>
+                        <Camera className="w-10 h-10 text-slate-300 mb-3" />
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tracking-tight">{newExpense.receiptName || 'Clique para Smart Scan (IA) ou Arraste o arquivo'}</span>
                       </>
                     )}
                     <input type="file" disabled={isScanning} onChange={handleSimulateFile} className="hidden" />
@@ -1446,16 +1512,16 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex flex-col sm:flex-row justify-end gap-4 pt-8 border-t border-slate-100 dark:border-slate-800">
                 <button 
                   type="button"
                   onClick={() => setActiveTab('dashboard')}
-                  className="px-6 py-3 rounded-2xl text-sm font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  className="px-8 py-3.5 rounded-2xl text-sm font-bold border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all font-display"
                 >
-                  Voltar ao Início
+                  Cancelar Operação
                 </button>
-                <button type="submit" className="px-8 py-3 bg-blue-900 hover:bg-blue-800 text-white font-black rounded-2xl shadow-xl shadow-blue-900/20 transition-all transform active:scale-95">
-                  REGISTRAR COMPRA AGORA
+                <button type="submit" className="px-10 py-3.5 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-sm rounded-2xl shadow-xl shadow-blue-900/20 transition-all transform active:scale-95 font-display tracking-tight uppercase">
+                  Finalizar Registro
                 </button>
               </div>
             </form>
@@ -1464,25 +1530,25 @@ export default function App() {
 
         {/* INSIGHTS */}
         {activeTab === 'insights' && (
-          <div className="space-y-6">
-            <h1 className="text-2xl font-black">Inteligência Financeira</h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-8 pb-10">
+            <h1 className="text-3xl font-extrabold tracking-tight font-display">Inteligência Estratégica</h1>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {insights.map((ins, i) => {
                 const Icon = ins.icon;
                 return (
                   <motion.div 
-                    initial={{ opacity: 0, x: -20 }} 
-                    animate={{ opacity: 1, x: 0 }} 
-                    transition={{ delay: i * 0.1 }}
+                    initial={{ opacity: 0, y: 20 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    transition={{ delay: i * 0.1, duration: 0.5 }}
                     key={i} 
-                    className={`p-6 rounded-2xl border flex items-start gap-4 ${
-                      ins.type === 'danger' ? 'bg-blue-50 border-blue-100 text-blue-900' : 'bg-blue-50 border-blue-100 text-blue-900'
+                    className={`p-8 rounded-[2rem] border flex items-start gap-6 transition-all hover:shadow-xl shadow-blue-900/5 ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'
                     }`}
                   >
-                    <div className="p-3 bg-white rounded-xl shadow-sm"><Icon className="w-6 h-6" /></div>
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-2xl text-blue-900 dark:text-blue-400 group-hover:scale-110 transition-transform"><Icon className="w-8 h-8" /></div>
                     <div>
-                      <h4 className="font-black text-sm">{ins.title}</h4>
-                      <p className="text-xs mt-1 opacity-70">{ins.description}</p>
+                      <h4 className="font-extrabold text-lg font-display text-slate-900 dark:text-white leading-tight mb-2">{ins.title}</h4>
+                      <p className="text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 font-medium">{ins.description}</p>
                     </div>
                   </motion.div>
                 );
@@ -1493,28 +1559,35 @@ export default function App() {
 
         {/* PAINEL GESTOR */}
         {activeTab === 'painel-gestor' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-            <div className="flex items-center gap-3">
-              <Shield className="w-6 h-6 text-blue-900" />
-              <h1 className="text-2xl font-black">Fluxo de Aprovação</h1>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8 max-w-5xl mx-auto text-center py-10">
+            <div className="flex flex-col items-center gap-2 mb-10">
+              <Shield className="w-12 h-12 text-blue-900 mb-2" />
+              <h1 className="text-4xl font-extrabold tracking-tight font-display">Hub de Governança</h1>
+              <p className="text-slate-500 font-medium max-w-xl mx-auto">Monitoramento de conformidade e auditoria de registros financeiros em tempo real.</p>
             </div>
-            <div className="p-10 text-center rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800">
-              <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
-              <h3 className="font-black">Sem Pendências Cruciais</h3>
-              <p className="text-sm text-slate-500 mt-2">Todas as despesas recentes foram processadas pelo motor de regras automático.</p>
+            <div className="p-16 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/10">
+              <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-950/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle className="w-10 h-10 text-emerald-600" />
+              </div>
+              <h3 className="text-2xl font-extrabold font-display text-slate-900 dark:text-white">Fluxos Consolidados</h3>
+              <p className="text-base text-slate-500 mt-3 max-w-sm mx-auto font-medium">Todas as transações recentes foram validadas pelo motor de inteligência e compliance.</p>
+              <button className="mt-8 px-8 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm font-bold shadow-sm hover:shadow-md transition-all">Ver Relatório Detalhado</button>
             </div>
           </motion.div>
         )}
 
       </main>
 
-      <footer className="mt-20 py-10 border-t border-slate-100 dark:border-slate-900 text-center print:hidden">
-        <div className="max-w-7xl mx-auto flex flex-col items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-blue-900 flex items-center justify-center text-white"><Briefcase className="w-3 h-3" /></div>
-            <span className="font-bold text-sm tracking-tight text-slate-900 dark:text-white">Travel <span className="text-blue-700">Control</span></span>
+      <footer className="mt-20 py-16 border-t border-slate-100 dark:border-slate-800 text-center print:hidden bg-slate-50/30 dark:bg-slate-900/50">
+        <div className="max-w-7xl mx-auto flex flex-col items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-900 flex items-center justify-center text-white shadow-lg shadow-blue-900/20"><Briefcase className="w-4 h-4" /></div>
+            <span className="font-display font-extrabold text-lg tracking-tight text-slate-900 dark:text-white">Travel <span className="text-blue-700 font-display">Control</span></span>
           </div>
-          <p className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest">Desenvolvido por Benedito Junior</p>
+          <div className="space-y-1">
+            <p className="text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] font-sans">Business Intelligence Unit</p>
+            <p className="text-xs font-bold text-slate-600 dark:text-slate-400 font-display">Sistema de Gestão Executiva</p>
+          </div>
         </div>
       </footer>
 
