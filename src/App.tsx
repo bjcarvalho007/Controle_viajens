@@ -79,11 +79,50 @@ const CATEGORIES = [
 
 const PAYMENTS = [
   'Cartão Corporativo',
+  'Débito',
+  'Crédito',
+  'Pix',
   'Reembolso',
   'Dinheiro',
   'Faturamento Direto',
   'Sem Parar / Corporativo'
 ];
+
+const getUFFromCity = (cityName: string): string => {
+  const normalized = cityName.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  
+  const cityMap: Record<string, string> = {
+    'sao paulo': 'SP', 'campinas': 'SP', 'santos': 'SP', 'guarulhos': 'SP', 'sao bernardo do campo': 'SP', 'sao jose dos campos': 'SP', 'ribeirao preto': 'SP', 'sorocaba': 'SP', 'osasco': 'SP',
+    'rio de janeiro': 'RJ', 'niteroi': 'RJ', 'duque de caixas': 'RJ', 'nova iguacu': 'RJ', 'petropolis': 'RJ',
+    'belo horizonte': 'MG', 'uberlandia': 'MG', 'contagem': 'MG', 'juiz de fora': 'MG', 'betim': 'MG',
+    'vitoria': 'ES', 'vila velha': 'ES', 'serra': 'ES',
+    'curitiba': 'PR', 'londrina': 'PR', 'maringa': 'PR', 'ponta grossa': 'PR', 'cascavel': 'PR',
+    'porto alegre': 'RS', 'caxias do sul': 'RS', 'canoas': 'RS', 'pelotas': 'RS',
+    'florianopolis': 'SC', 'joinville': 'SC', 'blumenau': 'SC', 'chapeco': 'SC',
+    'salvador': 'BA', 'feira de santana': 'BA', 'vitoria da conquista': 'BA',
+    'recife': 'PE', 'olinda': 'PE', 'caruaru': 'PE',
+    'fortaleza': 'CE', 'juazeiro do norte': 'CE', 'sobral': 'CE',
+    'sao luis': 'MA', 'imperatriz': 'MA',
+    'teresina': 'PI',
+    'natal': 'RN', 'mossoro': 'RN',
+    'joao pessoa': 'PB', 'campina grande': 'PB',
+    'maceio': 'AL',
+    'aracaju': 'SE',
+    'belem': 'PA', 'ananindeua': 'PA', 'santarem': 'PA',
+    'manaus': 'AM',
+    'rio branco': 'AC',
+    'porto velho': 'RO',
+    'boa vista': 'RR',
+    'macapa': 'AP',
+    'palmas': 'TO',
+    'brasilia': 'DF',
+    'goiania': 'GO', 'aparecida de goiania': 'GO', 'anapolis': 'GO',
+    'cuiaba': 'MT', 'varzea grande': 'MT',
+    'campo grande': 'MS'
+  };
+
+  return cityMap[normalized] || '';
+};
 
 export default function App() {
   // --- ESTADOS DE USUÁRIO ÚNICO ---
@@ -1687,7 +1726,15 @@ export default function App() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Cidade de Origem *</label>
-                  <input required placeholder="Cidade" value={newExpense.city} onChange={e => setNewExpense({...newExpense, city: e.target.value})} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium" />
+                  <input required placeholder="Cidade" value={newExpense.city} onChange={e => {
+                    const cityVal = e.target.value;
+                    const detectedUF = getUFFromCity(cityVal);
+                    setNewExpense({
+                      ...newExpense,
+                      city: cityVal,
+                      state: detectedUF || newExpense.state
+                    });
+                  }} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">UF *</label>
