@@ -144,6 +144,7 @@ export default function App() {
     km: '0',
     expenseType: 'Viagem Nacional',
     receiptName: '',
+    receiptUrl: '',
     status: 'Aprovado' 
   });
 
@@ -447,6 +448,18 @@ export default function App() {
     return list;
   }, [metrics, filteredExpenses, budget]);
 
+  const groupedExpensesByCategory = useMemo<Record<string, any[]>>(() => {
+    const grouped: Record<string, any[]> = {};
+    filteredExpenses.forEach(exp => {
+      const cat = exp.category || 'Outros';
+      if (!grouped[cat]) {
+        grouped[cat] = [];
+      }
+      grouped[cat].push(exp);
+    });
+    return grouped;
+  }, [filteredExpenses]);
+
   // --- SUBMISSÃO DE COMPRAS ---
   const handleSubmitExpense = (e: React.FormEvent) => {
     e.preventDefault();
@@ -476,6 +489,7 @@ export default function App() {
       km: parseFloat(newExpense.km || '0'),
       expenseType: newExpense.expenseType,
       receipt: newExpense.receiptName || 'comprovante_anexado.png',
+      receiptUrl: newExpense.receiptUrl || '',
       status: 'Aprovado',
       approvedBy: 'Sistema Automático',
       createdAt: new Date().toISOString()
@@ -500,6 +514,7 @@ export default function App() {
       km: '0',
       expenseType: 'Viagem Nacional',
       receiptName: '',
+      receiptUrl: '',
       status: 'Aprovado'
     });
 
@@ -510,56 +525,59 @@ export default function App() {
   const handleSimulateFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setNewExpense(prev => ({ ...prev, receiptName: file.name }));
-      
       const isImage = file.type.startsWith('image/');
-      if (!isImage) {
-        showToast(`Arquivo "${file.name}" anexado.`, 'success');
-        return;
-      }
+      
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const fullBase64 = reader.result as string;
+        
+        // Salva nome do recibo e a imagem em formato URL Base64 imediatamente
+        setNewExpense(prev => ({ 
+          ...prev, 
+          receiptName: file.name,
+          receiptUrl: fullBase64 
+        }));
+        
+        if (!isImage) {
+          showToast(`Arquivo "${file.name}" anexado.`, 'success');
+          return;
+        }
 
-      setIsScanning(true);
-      showToast('Inteligência Artificial processando recibo...', 'info');
+        setIsScanning(true);
+        showToast('Inteligência Artificial processando recibo...', 'info');
 
-      try {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = async () => {
-          const base64 = (reader.result as string).split(',')[1];
+        try {
+          const base64Raw = fullBase64.split(',')[1];
+          const response = await fetch('/api/scan-receipt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: base64Raw, mimeType: file.type })
+          });
+
+          if (!response.ok) throw new Error('Falha no processamento AI');
           
-          try {
-            const response = await fetch('/api/scan-receipt', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ image: base64, mimeType: file.type })
-            });
+          const data = await response.json();
+          
+          setNewExpense(prev => ({
+            ...prev,
+            productName: data.productName || prev.productName,
+            establishment: data.vendor || prev.establishment,
+            amount: data.amount ? formatCurrency((data.amount * 100).toString()) : prev.amount,
+            city: data.city || prev.city,
+            state: data.state || prev.state,
+            date: data.date || prev.date,
+            category: data.category || prev.category
+          }));
 
-            if (!response.ok) throw new Error('Falha no processamento AI');
-            
-            const data = await response.json();
-            
-            setNewExpense(prev => ({
-              ...prev,
-              productName: data.productName || prev.productName,
-              establishment: data.vendor || prev.establishment,
-              amount: data.amount ? formatCurrency((data.amount * 100).toString()) : prev.amount,
-              city: data.city || prev.city,
-              state: data.state || prev.state,
-              date: data.date || prev.date,
-              category: data.category || prev.category
-            }));
-
-            showToast('Dados extraídos com sucesso via Smart Scan!', 'success');
-          } catch (err) {
-            console.error(err);
-            showToast('Erro ao extrair dados. Preencha manualmente.', 'error');
-          } finally {
-            setIsScanning(false);
-          }
-        };
-      } catch (err) {
-        setIsScanning(false);
-      }
+          showToast('Dados extraídos com sucesso via Smart Scan!', 'success');
+        } catch (err) {
+          console.error(err);
+          showToast('Erro ao extrair dados. Preencha manualmente.', 'error');
+        } finally {
+          setIsScanning(false);
+        }
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -683,50 +701,141 @@ export default function App() {
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-12">
           <div className="flex items-center gap-4 mb-6">
             <div className="h-px bg-slate-200 grow"></div>
-            <h2 className="text-xs font-black uppercase tracking-[0.4em] text-slate-400 whitespace-nowrap">Detalhamento das Operações</h2>
+            <h2 className="text-xs font-black uppercase tracking-[0.4em] text-slate-400 whitespace-nowrap">Detalhamento das Operações por Categoria</h2>
             <div className="h-px bg-slate-200 grow"></div>
           </div>
 
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-800 text-white uppercase font-bold text-[9px] tracking-widest">
-                <th className="p-4 rounded-tl-xl">Data</th>
-                <th className="p-4">Item / Estabelecimento</th>
-                <th className="p-5">Categoria</th>
-                <th className="p-4 text-right">Valor Unit.</th>
-                <th className="p-4 text-center">Qtd</th>
-                <th className="p-4 text-right rounded-tr-xl">V. Total</th>
-              </tr>
-            </thead>
-            <tbody className="text-[10px]">
-              {filteredExpenses.map((exp, idx) => (
-                <tr key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} border-b border-slate-100`}>
-                  <td className="p-4 font-semibold text-slate-400 whitespace-nowrap">{new Date(exp.date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
-                  <td className="p-4">
-                    <p className="font-bold text-slate-800 uppercase">{exp.productName}</p>
-                    <p className="text-[9px] text-slate-400 font-medium uppercase mt-0.5">{exp.establishment}</p>
-                  </td>
-                  <td className="p-4">
-                    <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[8px] font-semibold uppercase text-slate-800">{exp.category}</span>
-                  </td>
-                  <td className="p-4 text-right font-medium text-slate-600">R$ {(exp.amount / exp.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                  <td className="p-4 text-center font-semibold text-slate-800">{exp.quantity}</td>
-                  <td className="p-4 text-right font-bold text-slate-800">R$ {exp.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="bg-slate-800 text-white">
-                <td colSpan={5} className="p-5 text-right font-semibold uppercase text-[10px] tracking-widest rounded-bl-xl">Total Destinado a Reembolso / Débito</td>
-                <td className="p-5 text-right font-bold text-xl font-display rounded-br-xl">R$ {metrics.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-              </tr>
-            </tfoot>
-          </table>
+          {Object.keys(groupedExpensesByCategory).length === 0 ? (
+            <p className="text-center text-slate-400 font-bold py-10">Nenhuma despesa registrada para o período.</p>
+          ) : (
+            (Object.entries(groupedExpensesByCategory) as [string, any[]][]).map(([categoryName, categoryExpenses]) => {
+              const catTotal = categoryExpenses.reduce((sum, e) => sum + e.amount, 0);
+              return (
+                <div key={categoryName} className="p-6 border border-slate-200 rounded-2xl bg-slate-50/20 break-inside-avoid shadow-sm mb-10">
+                  <div className="flex justify-between items-center border-b-2 border-slate-800 pb-2 mb-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black text-slate-900 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded-md">
+                        {categoryName}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                        ({categoryExpenses.length} documentos)
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Subtotal: </span>
+                      <span className="text-lg font-bold text-slate-900">R$ {catTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
 
-          <div className="mt-24 grid grid-cols-2 gap-32">
+                  <table className="w-full text-left border-collapse mb-6">
+                    <thead>
+                      <tr className="bg-slate-800 text-white uppercase font-bold text-[8px] tracking-widest">
+                        <th className="p-3 rounded-tl-lg">Data / Hora</th>
+                        <th className="p-3">Item / Estabelecimento</th>
+                        <th className="p-3">Meio de Pagamento</th>
+                        <th className="p-3 text-right">Valor Unit.</th>
+                        <th className="p-3 text-center">Qtd</th>
+                        <th className="p-3 text-right rounded-tr-lg">V. Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-[10px]">
+                      {categoryExpenses.map((exp, idx) => (
+                        <tr key={exp.id || idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} border-b border-slate-100`}>
+                          <td className="p-3 font-semibold text-slate-500 whitespace-nowrap">
+                            {new Date(exp.date + 'T00:00:00').toLocaleDateString('pt-BR')} {exp.time || ''}
+                          </td>
+                          <td className="p-3">
+                            <p className="font-bold text-slate-800 uppercase">{exp.productName}</p>
+                            <div className="flex gap-2 text-[8px] text-slate-400 uppercase tracking-tight mt-0.5 font-medium">
+                              <span>{exp.establishment}</span>
+                              {exp.travelNumber && <span>• Viagem #{exp.travelNumber}</span>}
+                              {exp.km > 0 && <span>• {exp.km} KM</span>}
+                            </div>
+                            {exp.notes && (
+                              <p className="text-[8px] text-slate-400 italic mt-1 font-normal">
+                                Obs: {exp.notes}
+                              </p>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            <span className="text-[9px] font-semibold text-slate-600 uppercase">
+                              {exp.paymentMethod}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right font-medium text-slate-600">R$ {(exp.amount / exp.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          <td className="p-3 text-center font-semibold text-slate-800">{exp.quantity}</td>
+                          <td className="p-3 text-right font-bold text-slate-800">R$ {exp.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="mt-4 space-y-3">
+                    <p className="text-[9px] font-black uppercase text-slate-400 tracking-wider">
+                      Anexos de Comprovação — {categoryName}
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      {categoryExpenses.map((exp) => {
+                        const hasRealImage = exp.receiptUrl && exp.receiptUrl.startsWith('data:image');
+                        
+                        return (
+                          <div key={`receipt-${exp.id}`} className="p-4 border border-slate-200 rounded-xl bg-white flex flex-col justify-between break-inside-avoid shadow-sm min-h-[220px]">
+                            <div>
+                              <div className="flex justify-between items-start mb-2 pb-1.5 border-b border-dashed border-slate-200">
+                                <span className="text-[9px] font-black text-slate-800 uppercase tracking-wide">
+                                  Documento #{exp.id}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-emerald-50 text-emerald-700 tracking-wider">
+                                  Verificado
+                                </span>
+                              </div>
+                              <p className="font-bold text-slate-800 uppercase text-[9px] line-clamp-1">{exp.productName}</p>
+                              <p className="text-[8px] text-slate-400 mt-0.5 uppercase tracking-tight">{exp.establishment} • {new Date(exp.date + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                            </div>
+
+                            {hasRealImage ? (
+                              <div className="my-2 bg-slate-50 border border-slate-100 rounded-lg p-1 flex items-center justify-center h-28 overflow-hidden">
+                                <img 
+                                  src={exp.receiptUrl} 
+                                  alt={`Comprovante ${exp.productName}`}
+                                  className="max-h-full max-w-full object-contain mx-auto rounded"
+                                  referrerPolicy="no-referrer"
+                                />
+                              </div>
+                            ) : (
+                              <div className="my-2 p-2 border border-slate-200 border-dashed rounded-lg bg-slate-50 relative overflow-hidden font-mono text-[7px] text-slate-500 leading-normal flex flex-col justify-between h-28">
+                                <div className="absolute -top-10 -right-10 w-20 h-20 border border-dashed border-slate-300 rounded-full flex items-center justify-center opacity-30 select-none pointer-events-none uppercase tracking-widest font-sans font-bold text-slate-700 leading-tight">
+                                  IA<br/>OK
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="font-bold text-center text-slate-700 uppercase leading-none mb-1">CUPOM DE REGISTRO FISCAL</p>
+                                  <div className="flex justify-between"><span>ID:</span><span className="font-semibold">{exp.id}</span></div>
+                                  <div className="flex justify-between"><span>DATA/HORA:</span><span>{new Date(exp.date + 'T00:00:00').toLocaleDateString('pt-BR')} {exp.time}</span></div>
+                                  <div className="flex justify-between"><span>PAGAMENTO:</span><span>{exp.paymentMethod}</span></div>
+                                  <div className="flex justify-between"><span>VALOR TOTAL:</span><span className="font-extrabold text-slate-800">R$ {exp.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
+                                </div>
+                                <div className="border-t border-dashed border-slate-300 pt-1 mt-1 text-center font-sans font-bold text-[6px] text-emerald-600 uppercase tracking-widest">
+                                  ✓ COMPROVANTE DIGITAL {exp.receipt ? exp.receipt.toUpperCase() : "REGISTRADO"}
+                                </div>
+                              </div>
+                            )}
+                            <div className="text-[7px] text-slate-400 font-mono text-center truncate pt-1 border-t border-slate-100 mt-1">
+                              Arquivo: {exp.receipt || "comprovante_anexado.png"}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+
+          <div className="mt-24 grid grid-cols-2 gap-32 font-sans">
             <div className="space-y-12">
                <div className="h-px bg-slate-400 w-full mb-4"></div>
                <div className="text-center">
@@ -1043,17 +1152,22 @@ export default function App() {
             </div>
 
             <nav className="hidden md:flex items-center space-x-1">
-              {['dashboard', 'despesas', 'cadastrar', 'insights', 'painel-gestor'].map((tab) => (
+              {[
+                { id: 'dashboard', label: 'Dashboard' },
+                { id: 'despesas', label: 'Minhas Despesas' },
+                { id: 'cadastrar', label: 'Registrar Compra' },
+                { id: 'insights', label: 'Insights Financeiros' }
+              ].map((tab) => (
                 <button 
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-5 py-2 rounded-lg text-sm font-medium tracking-tight font-display transition-all ${
-                    activeTab === tab 
-                      ? 'bg-slate-100 text-slate-900 shadow-sm' 
-                      : 'text-slate-500 hover:bg-slate-50'
-                  } ${tab === 'painel-gestor' && activeTab !== tab ? 'border-l border-slate-200 ml-4 pl-6 text-slate-600' : ''}`}
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 py-2 rounded-xl text-xs font-black tracking-wider uppercase transition-all duration-300 cursor-pointer ${
+                    activeTab === tab.id 
+                      ? 'bg-slate-900 text-white shadow-md' 
+                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
                 >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1).replace('-', ' ')}
+                  {tab.label}
                 </button>
               ))}
             </nav>
@@ -1115,6 +1229,87 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
+        {/* PAINEL DE NAVEGAÇÃO UNIFICADO (DASHBOARD PRESETS - VISÃO PREMIUM) */}
+        <div className="mb-10 p-4 rounded-[2rem] border border-slate-200/80 bg-gradient-to-br from-white via-slate-50/50 to-white shadow-lg print:hidden relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-80 h-80 bg-slate-100/40 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16"></div>
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-slate-50/60 rounded-full blur-3xl pointer-events-none -ml-16 -mb-16"></div>
+
+          <div className="relative grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+            {[
+              { id: 'dashboard', label: 'Dashboard', icon: TrendingUp, desc: 'Visão Geral & Métricas', theme: 'indigo' },
+              { id: 'despesas', label: 'Minhas Despesas', icon: DollarSign, desc: 'Histórico & Recibos', theme: 'emerald' },
+              { id: 'cadastrar', label: 'Registrar Compra', icon: Plus, desc: 'Novo Gasto (Smart Scan)', theme: 'violet' },
+              { id: 'insights', label: 'Insights Financeiros', icon: Lightbulb, desc: 'Análises de IA', theme: 'amber' }
+            ].map((item, idx) => {
+              const IconComponent = item.icon;
+              const isActive = activeTab === item.id;
+              
+              // Temas luxuosos para botões ativos
+              const themeStyles = {
+                indigo: 'bg-slate-900 border-slate-950 text-white shadow-xl shadow-indigo-900/10 hover:bg-slate-800',
+                emerald: 'bg-emerald-950 border-emerald-900 text-white shadow-xl shadow-emerald-900/10 hover:bg-emerald-900',
+                violet: 'bg-violet-950 border-violet-900 text-white shadow-xl shadow-violet-900/10 hover:bg-violet-900',
+                amber: 'bg-amber-950 border-amber-900 text-white shadow-xl shadow-amber-900/10 hover:bg-amber-900',
+              }[item.theme as 'indigo' | 'emerald' | 'violet' | 'amber'];
+
+              const iconContainerStyles = isActive 
+                ? 'bg-white/10 text-white border border-white/10'
+                : 'bg-slate-100/80 text-slate-700 border border-slate-200/50 group-hover:bg-white group-hover:text-slate-900 group-hover:border-slate-300';
+
+              const activeDotColor = {
+                indigo: 'bg-white',
+                emerald: 'bg-emerald-400',
+                violet: 'bg-violet-400',
+                amber: 'bg-amber-400',
+              }[item.theme as 'indigo' | 'emerald' | 'violet' | 'amber'];
+
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`group relative flex items-center gap-4 p-4.5 rounded-[1.25rem] text-left transition-all duration-350 cursor-pointer overflow-hidden ${
+                    isActive 
+                      ? `${themeStyles} scale-[1.02] border`
+                      : 'border border-slate-200/60 bg-white hover:bg-slate-50/80 hover:border-slate-300 hover:shadow-md active:scale-[0.98]'
+                  }`}
+                >
+                  {/* Subtle active state inner glow */}
+                  {isActive && (
+                    <div className="absolute inset-0 bg-gradient-to-tr from-white/5 via-transparent to-transparent opacity-60"></div>
+                  )}
+
+                  {/* Icon Wrapper with bounce hover effect */}
+                  <div className={`p-3 rounded-xl shrink-0 transition-all duration-300 transform group-hover:scale-110 relative z-10 ${iconContainerStyles}`}>
+                    <IconComponent className="w-5 h-5 transition-transform duration-300 group-hover:rotate-6" />
+                  </div>
+
+                  {/* Text Details */}
+                  <div className="overflow-hidden relative z-10 flex-grow">
+                    <p className={`text-[14px] font-black leading-none tracking-tight transition-colors duration-200 ${
+                      isActive ? 'text-white' : 'text-slate-800'
+                    }`}>
+                      {item.label}
+                    </p>
+                    <p className={`text-[10.5px] mt-2 font-semibold truncate leading-none tracking-tight transition-colors duration-200 ${
+                      isActive ? 'text-slate-300/90' : 'text-slate-400'
+                    }`}>
+                      {item.desc}
+                    </p>
+                  </div>
+
+                  {/* Dynamic pulse dot for the active card */}
+                  {isActive && (
+                    <span className="absolute top-3 right-3 flex h-2.5 w-2.5">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${activeDotColor}`}></span>
+                      <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${activeDotColor}`}></span>
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* DASHBOARD */}
         {activeTab === 'dashboard' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8 pb-10">
