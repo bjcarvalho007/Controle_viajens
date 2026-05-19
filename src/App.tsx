@@ -40,6 +40,7 @@ import {
   Tag, 
   ArrowUpRight, 
   ArrowDownRight,
+  ArrowLeft,
   Info,
   Shield,
   Lightbulb,
@@ -1151,27 +1152,6 @@ export default function App() {
               </span>
             </div>
 
-            <nav className="hidden md:flex items-center space-x-1">
-              {[
-                { id: 'dashboard', label: 'Dashboard' },
-                { id: 'despesas', label: 'Minhas Despesas' },
-                { id: 'cadastrar', label: 'Registrar Compra' },
-                { id: 'insights', label: 'Insights Financeiros' }
-              ].map((tab) => (
-                <button 
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`px-4 py-2 rounded-xl text-xs font-black tracking-wider uppercase transition-all duration-300 cursor-pointer ${
-                    activeTab === tab.id 
-                      ? 'bg-slate-900 text-white shadow-md' 
-                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </nav>
-
             <div className="flex items-center gap-4">
 
               <button 
@@ -1187,44 +1167,9 @@ export default function App() {
                   <p className="font-semibold text-[11px] leading-3 text-slate-800">{userData.fullName ? userData.fullName.split(' ')[0] : 'Acessando...'}</p>
                 </div>
               </button>
-              <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="md:hidden p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors">
-                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-              </button>
             </div>
           </div>
         </div>
-
-        {/* Menu Mobile */}
-        <AnimatePresence>
-          {mobileMenuOpen && (
-            <motion.div 
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="md:hidden border-t border-slate-200 bg-white px-4 pt-2 pb-4 space-y-2 overflow-hidden"
-            >
-              {[
-                { id: 'dashboard', label: 'Dashboard' },
-                { id: 'despesas', label: 'Minhas Despesas' },
-                { id: 'cadastrar', label: 'Registrar Compra' },
-                { id: 'insights', label: 'Insights' },
-                { id: 'painel-gestor', label: 'Aprovações' },
-              ].map((item) => (
-                <button 
-                  key={item.id}
-                  onClick={() => { setActiveTab(item.id); setMobileMenuOpen(false); }}
-                  className={`w-full text-left px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                    activeTab === item.id 
-                      ? 'bg-slate-800 text-white' 
-                      : 'text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -1590,6 +1535,15 @@ export default function App() {
         {/* LISTA DE DESPESAS */}
         {activeTab === 'despesas' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+            <div className="print:hidden">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200/60 hover:bg-slate-100 hover:text-slate-900 transition-all cursor-pointer shadow-sm active:scale-[0.98]"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Voltar ao Dashboard
+              </button>
+            </div>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
               <h1 className="text-2xl font-bold tracking-tight font-display text-slate-800">Minhas Despesas</h1>
               <div className="relative w-full sm:w-96 group">
@@ -1670,6 +1624,15 @@ export default function App() {
         {/* CADASTRAR */}
         {activeTab === 'cadastrar' && (
           <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="max-w-3xl mx-auto pb-10">
+            <div className="mb-6 print:hidden">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200/60 hover:bg-slate-100 hover:text-slate-900 transition-all cursor-pointer shadow-sm active:scale-[0.98]"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Voltar ao Dashboard
+              </button>
+            </div>
             <div className="mb-8">
               <h1 className="text-3xl font-extrabold tracking-tight font-display">Registrar Transação</h1>
               <p className="text-sm text-slate-600 font-medium">Insira os detalhes técnicos do gasto corporativo para processamento.</p>
@@ -1770,7 +1733,16 @@ export default function App() {
         {/* INSIGHTS */}
         {activeTab === 'insights' && (
           <div className="space-y-8 pb-10">
-              <h1 className="text-2xl font-bold tracking-tight font-display text-slate-800">Inteligência Estratégica</h1>
+            <div className="print:hidden">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200/60 hover:bg-slate-100 hover:text-slate-900 transition-all cursor-pointer shadow-sm active:scale-[0.98]"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Voltar ao Dashboard
+              </button>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight font-display text-slate-800">Inteligência Estratégica</h1>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {insights.map((ins, i) => {
                 const Icon = ins.icon;
@@ -1799,6 +1771,15 @@ export default function App() {
         {/* PAINEL GESTOR */}
         {activeTab === 'painel-gestor' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8 max-w-5xl mx-auto text-center py-10">
+            <div className="flex justify-center print:hidden">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200/60 hover:bg-slate-100 hover:text-slate-900 transition-all cursor-pointer shadow-sm active:scale-[0.98]"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Voltar ao Dashboard
+              </button>
+            </div>
             <div className="flex flex-col items-center gap-2 mb-10">
               <Shield className="w-12 h-12 text-slate-400 mb-2" />
               <h1 className="text-3xl font-bold tracking-tight font-display text-slate-800">Hub de Governança</h1>
