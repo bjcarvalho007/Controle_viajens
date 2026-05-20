@@ -128,6 +128,52 @@ const getUFFromCity = (cityName: string): string => {
   return cityMap[normalized] || '';
 };
 
+const compressImage = (base64Str: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      // Mantém proporções limitando o tamanho máximo para 800px para garantir excelente leitura e compactação ideal (~40-85kb)
+      const MAX_WIDTH = 900;
+      const MAX_HEIGHT = 900;
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height); // garante fundo branco para transparências
+        ctx.drawImage(img, 0, 0, width, height);
+        // compactação em formato JPEG leve e nítido
+        const compressed = canvas.toDataURL('image/jpeg', 0.55);
+        resolve(compressed);
+      } else {
+        resolve(base64Str);
+      }
+    };
+    img.onerror = () => {
+      resolve(base64Str);
+    };
+  });
+};
+
 export default function App() {
   // --- ESTADOS DE USUÁRIO ÚNICO ---
   const [userData, setUserData] = useState({
@@ -593,10 +639,15 @@ export default function App() {
       
       const reader = new FileReader();
       reader.onload = async () => {
-        const fullBase64 = reader.result as string;
+        let finalBase64 = reader.result as string;
         
-        // Adiciona o novo comprovante à lista acumulada
-        const newReceipt = { name: file.name, url: fullBase64 };
+        if (isImage) {
+          showToast('Otimizando imagem do comprovante...', 'info');
+          finalBase64 = await compressImage(finalBase64);
+        }
+        
+        // Adiciona o novo comprovante à lista acumulada (extremamente comprimido para localStorage)
+        const newReceipt = { name: file.name, url: finalBase64 };
         
         setNewExpense(prev => ({ 
           ...prev, 
@@ -612,11 +663,11 @@ export default function App() {
         showToast('Inteligência Artificial processando recibo...', 'info');
 
         try {
-          const base64Raw = fullBase64.split(',')[1];
+          const base64Raw = finalBase64.split(',')[1];
           const response = await fetch('/api/scan-receipt', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: base64Raw, mimeType: file.type })
+            body: JSON.stringify({ image: base64Raw, mimeType: 'image/jpeg' }) // Como comprimimos, agora é imagem/jpeg
           });
 
           if (!response.ok) throw new Error('Falha no processamento AI');
