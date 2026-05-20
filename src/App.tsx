@@ -9,6 +9,8 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { 
   Briefcase, 
   Plane,
@@ -52,7 +54,9 @@ import {
   Edit2,
   BookOpen,
   Target,
-  Trash2
+  Trash2,
+  Files,
+  FileDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -168,7 +172,24 @@ export default function App() {
   const [filterCity, setFilterCity] = useState('Todas');
 
   // --- ESTADO DO NOVO CADASTRO ---
-  const [newExpense, setNewExpense] = useState({
+  const [newExpense, setNewExpense] = useState<{
+    productName: string;
+    category: string;
+    amount: string;
+    quantity: string;
+    paymentMethod: string;
+    establishment: string;
+    city: string;
+    state: string;
+    date: string;
+    time: string;
+    notes: string;
+    travelNumber: string;
+    km: string;
+    expenseType: string;
+    receipts: Array<{ name: string; url: string }>;
+    status: string;
+  }>({
     productName: '',
     category: 'Alimentação',
     amount: '',
@@ -183,10 +204,13 @@ export default function App() {
     travelNumber: '',
     km: '0',
     expenseType: 'Viagem Nacional',
-    receiptName: '',
-    receiptUrl: '',
+    receipts: [],
     status: 'Aprovado' 
   });
+
+  // --- ESTADOS DE SELEÇÃO E GERADOR DE PDF ---
+  const [selectedReceiptsForPdf, setSelectedReceiptsForPdf] = useState<string[]>([]);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   // --- VERIFICAÇÃO INICIAL DO USUÁRIO & ORÇAMENTO ---
   useEffect(() => {
@@ -528,8 +552,9 @@ export default function App() {
       travelNumber: newExpense.travelNumber || '',
       km: parseFloat(newExpense.km || '0'),
       expenseType: newExpense.expenseType,
-      receipt: newExpense.receiptName || 'comprovante_anexado.png',
-      receiptUrl: newExpense.receiptUrl || '',
+      receipts: newExpense.receipts.length > 0 ? newExpense.receipts : [
+        { name: 'comprovante_padrao.png', url: '' }
+      ],
       status: 'Aprovado',
       approvedBy: 'Sistema Automático',
       createdAt: new Date().toISOString()
@@ -553,8 +578,7 @@ export default function App() {
       travelNumber: '',
       km: '0',
       expenseType: 'Viagem Nacional',
-      receiptName: '',
-      receiptUrl: '',
+      receipts: [],
       status: 'Aprovado'
     });
 
@@ -571,15 +595,16 @@ export default function App() {
       reader.onload = async () => {
         const fullBase64 = reader.result as string;
         
-        // Salva nome do recibo e a imagem em formato URL Base64 imediatamente
+        // Adiciona o novo comprovante à lista acumulada
+        const newReceipt = { name: file.name, url: fullBase64 };
+        
         setNewExpense(prev => ({ 
           ...prev, 
-          receiptName: file.name,
-          receiptUrl: fullBase64 
+          receipts: [...prev.receipts, newReceipt]
         }));
         
         if (!isImage) {
-          showToast(`Arquivo "${file.name}" anexado.`, 'success');
+          showToast(`Comprovante "${file.name}" anexado à lista com sucesso.`, 'success');
           return;
         }
 
@@ -612,7 +637,7 @@ export default function App() {
           showToast('Dados extraídos com sucesso via Smart Scan!', 'success');
         } catch (err) {
           console.error(err);
-          showToast('Erro ao extrair dados. Preencha manualmente.', 'error');
+          showToast('Erro ao extrair dados. Preencha os campos restantes manualmente.', 'error');
         } finally {
           setIsScanning(false);
         }
@@ -686,6 +711,124 @@ export default function App() {
 
   const exportToPDF = () => {
     window.print();
+  };
+
+  // --- COMPILADOR DE COMPROVANTES EM PDF ÚNICO ---
+  const generateCombinedReceiptsPdf = async () => {
+    if (selectedReceiptsForPdf.length === 0) {
+      showToast('Por favor, selecione pelo menos uma despesa com comprovante.', 'error');
+      return;
+    }
+
+    setIsGeneratingPdf(true);
+    showToast('Iniciando compilação do arquivo de comprovantes...', 'info');
+
+    try {
+      // Cria instância nova de PDF jspdf
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      let addedPagesCount = 0;
+
+      for (let i = 0; i < selectedReceiptsForPdf.length; i++) {
+        const expId = selectedReceiptsForPdf[i];
+        const exp = expenses.find(e => e.id === expId);
+        if (!exp) continue;
+
+        const receiptsList = exp.receipts || [];
+        
+        for (let rIdx = 0; rIdx < receiptsList.length; rIdx++) {
+          const receipt = receiptsList[rIdx];
+          if (!receipt || !receipt.url) continue;
+
+          if (addedPagesCount > 0) {
+            pdf.addPage();
+          }
+
+          // Adiciona Cabeçalho Elegante de Identificação do Comprovante no PDF
+          pdf.setFillColor(241, 245, 249); // slate-100
+          pdf.rect(0, 0, 210, 42, 'F');
+
+          pdf.setTextColor(15, 23, 42); // slate-900
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(14);
+          pdf.text('PORTAL CORPORATIVO - COMPROVANTE DE GASTO', 15, 15);
+
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(10);
+          pdf.setTextColor(71, 85, 105); // slate-600
+          pdf.text(`Colaborador: ${userData.fullName || 'Não informado'} (${userData.cpf || 'Sem CPF'})`, 15, 23);
+          pdf.text(`Despesa: ${exp.productName} | ID: #${exp.id}`, 15, 29);
+          pdf.text(`Estabelecimento: ${exp.establishment} | Categoria: ${exp.category}`, 15, 35);
+
+          pdf.setFillColor(15, 23, 42); // slate-900 para badge de valor
+          pdf.rect(145, 10, 50, 22, 'F');
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(8);
+          pdf.text('VALOR DO GASTO', 149, 17);
+          pdf.setFontSize(13);
+          pdf.text(`R$ ${exp.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 149, 27);
+
+          // Renderizar a Imagem ou Nome do Comprovante
+          if (receipt.url.startsWith('data:image/')) {
+            try {
+              // Desenha imagem respeitando as margens
+              pdf.addImage(receipt.url, 'JPEG', 15, 50, 180, 230, undefined, 'FAST');
+            } catch (imgError) {
+              console.error("Erro ao embutir foto no PDF:", imgError);
+              pdf.setFillColor(248, 250, 252);
+              pdf.rect(15, 50, 180, 80, 'F');
+              pdf.setTextColor(100, 116, 139);
+              pdf.setFontSize(12);
+              pdf.text('[Erro ao processar imagem do comprovante]', 40, 90);
+              pdf.text(`Nome do arquivo original: ${receipt.name}`, 40, 100);
+            }
+          } else {
+            // Em formato não imagem, exibe uma prévia informativa limpa
+            pdf.setFillColor(248, 250, 252);
+            pdf.rect(15, 50, 180, 80, 'F');
+            pdf.setTextColor(15, 23, 42);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(12);
+            pdf.text('Arquivo de Comprovante Anexado (Não-Imagem)', 25, 75);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(10);
+            pdf.setTextColor(71, 85, 105);
+            pdf.text(`Nome do arquivo: ${receipt.name}`, 25, 90);
+            pdf.text(`Tamanho/Formato: Base64 Documento`, 25, 100);
+            pdf.text(`Este anexo está salvo no banco e pode ser baixado ou compartilhado com a diretoria de compliance.`, 25, 110);
+          }
+
+          // Rodapé profissional
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(8);
+          pdf.setTextColor(148, 163, 184); // slate-400
+          pdf.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} | Página ${addedPagesCount + 1}`, 15, 287);
+          pdf.text('AUDITORIA AUTOMÁTICA COMPLIANCE B.J.C', 130, 287);
+
+          addedPagesCount++;
+        }
+      }
+
+      if (addedPagesCount === 0) {
+        showToast('Nenhum comprovante disponível nas despesas selecionadas!', 'error');
+        setIsGeneratingPdf(false);
+        return;
+      }
+
+      // Salva ou abre o PDF gerado
+      pdf.save(`ControleViagem_Compilado_Comprovantes_${new Date().toISOString().split('T')[0]}.pdf`);
+      showToast(`${addedPagesCount} comprovante(s) compilado(s) e baixado(s) em PDF único!`, 'success');
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      showToast('Ocorreu um erro ao processar e compilar as imagens dos comprovantes.', 'error');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   return (
@@ -1583,22 +1726,47 @@ export default function App() {
                 Voltar ao Dashboard
               </button>
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
-              <h1 className="text-2xl font-bold tracking-tight font-display text-slate-800">Minhas Despesas</h1>
-              <div className="relative w-full sm:w-96 group">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-slate-800 transition-colors" />
-                <input 
-                  type="text" 
-                  placeholder="Pesquisar por descrição, estabelecimento ou categoria..." 
-                  value={filterSearch}
-                  onChange={e => setFilterSearch(e.target.value)}
-                  className="w-full pl-11 pr-4 py-2.5 rounded-xl border bg-white border-slate-100 text-sm font-medium text-slate-900 outline-none focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all shadow-sm"
-                />
-                {filterSearch && (
-                  <button onClick={() => setFilterSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    <X className="w-4 h-4" />
+            
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight font-display text-slate-800">Minhas Despesas</h1>
+                <p className="text-xs text-slate-400 font-semibold mt-1">Selecione despesas abaixo para compilar e baixar múltiplos comprovantes em um PDF unificado.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                {selectedReceiptsForPdf.length > 0 && (
+                  <button
+                    onClick={generateCombinedReceiptsPdf}
+                    disabled={isGeneratingPdf}
+                    className="inline-flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-800 hover:bg-slate-950 transition-all cursor-pointer shadow-md active:scale-[0.98]"
+                  >
+                    {isGeneratingPdf ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        Compilando {selectedReceiptsForPdf.length}...
+                      </>
+                    ) : (
+                      <>
+                        <Files className="w-3.5 h-3.5" />
+                        Baixar Comprovantes Juntos ({selectedReceiptsForPdf.length})
+                      </>
+                    )}
                   </button>
                 )}
+                <div className="relative w-full sm:w-80 group">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-slate-800 transition-colors" />
+                  <input 
+                    type="text" 
+                    placeholder="Pesquisar registros..." 
+                    value={filterSearch}
+                    onChange={e => setFilterSearch(e.target.value)}
+                    className="w-full pl-11 pr-4 py-2.5 rounded-xl border bg-white border-slate-200 text-sm font-medium text-slate-900 outline-none focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all shadow-sm"
+                  />
+                  {filterSearch && (
+                    <button onClick={() => setFilterSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1607,51 +1775,116 @@ export default function App() {
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 font-black uppercase tracking-[0.1em] border-b border-slate-100">
-                      <th className="p-5 font-black">ID</th>
+                      <th className="p-5 w-12 text-center">
+                        <input
+                          type="checkbox"
+                          className="rounded text-slate-800 focus:ring-slate-800 cursor-pointer w-4 h-4"
+                          checked={filteredExpenses.length > 0 && selectedReceiptsForPdf.length === filteredExpenses.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedReceiptsForPdf(filteredExpenses.map(exp => exp.id));
+                            } else {
+                              setSelectedReceiptsForPdf([]);
+                            }
+                          }}
+                        />
+                      </th>
+                      <th className="p-5 font-black w-24">ID</th>
                       <th className="p-5">Detalhamento</th>
                       <th className="p-5">Estabelecimento / Local</th>
                       <th className="p-5 text-right">Montante</th>
+                      <th className="p-5 text-center">Comprovantes</th>
                       <th className="p-5 text-center">Status</th>
                       <th className="p-5 text-center">Ação</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredExpenses.map(exp => (
-                      <tr key={exp.id} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="p-5 font-bold text-slate-400">#{exp.id.toString().padStart(4, '0')}</td>
-                        <td className="p-5">
-                          <p className="font-semibold text-slate-700 text-sm">{exp.productName}</p>
-                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">{exp.category}</p>
-                        </td>
-                        <td className="p-5">
-                          <p className="font-semibold text-slate-700">{exp.establishment}</p>
-                          <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                            <MapPin className="w-2.5 h-2.5" /> {exp.city}, {exp.state}
-                          </p>
-                        </td>
-                        <td className="p-5 text-right font-bold text-sm text-slate-800">
-                          R$ {exp.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="p-5 text-center">
-                          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
-                            exp.status === 'Aprovado' ? 'bg-slate-50 text-slate-800 border border-slate-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
-                          }`}>
-                            <div className={`w-1 h-1 rounded-full ${exp.status === 'Aprovado' ? 'bg-slate-800' : 'bg-amber-500'}`} />
-                            {exp.status}
-                          </span>
-                        </td>
-                        <td className="p-5 text-center">
-                          <button 
-                            onClick={() => setExpenses(expenses.filter(e => e.id !== exp.id))}
-                            className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredExpenses.map(exp => {
+                      const receiptsList = exp.receipts || [];
+                      const isSelected = selectedReceiptsForPdf.includes(exp.id);
+                      return (
+                        <tr key={exp.id} className={`hover:bg-slate-50/50 transition-colors group ${isSelected ? 'bg-slate-50/40' : ''}`}>
+                          <td className="p-5 text-center">
+                            <input
+                              type="checkbox"
+                              className="rounded text-slate-800 focus:ring-slate-800 cursor-pointer w-4 h-4"
+                              checked={isSelected}
+                              onChange={() => {
+                                if (isSelected) {
+                                  setSelectedReceiptsForPdf(prev => prev.filter(id => id !== exp.id));
+                                } else {
+                                  setSelectedReceiptsForPdf(prev => [...prev, exp.id]);
+                                }
+                              }}
+                            />
+                          </td>
+                          <td className="p-5 font-bold text-slate-400">#{exp.id.toString().replace('EXP-', '')}</td>
+                          <td className="p-5">
+                            <p className="font-semibold text-slate-700 text-sm">{exp.productName}</p>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">{exp.category} • {exp.paymentMethod}</p>
+                          </td>
+                          <td className="p-5">
+                            <p className="font-semibold text-slate-700">{exp.establishment}</p>
+                            <p className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                              <MapPin className="w-2.5 h-2.5" /> {exp.city}, {exp.state}
+                            </p>
+                          </td>
+                          <td className="p-5 text-right font-bold text-sm text-slate-800">
+                            R$ {exp.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-5 text-center">
+                            {receiptsList.length === 0 ? (
+                              <span className="text-[10px] font-bold text-slate-400 uppercase">Nenhum</span>
+                            ) : (
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="px-2 py-0.5 rounded-md bg-slate-100 font-bold text-slate-700 text-[9px] uppercase">
+                                  {receiptsList.length} {receiptsList.length === 1 ? 'Anexo' : 'Anexos'}
+                                </span>
+                                {receiptsList.some(r => r.url) && (
+                                  <button
+                                    onClick={() => {
+                                      // Permite download imediato do primeiro anexo se houver
+                                      const primary = receiptsList[0];
+                                      if (primary && primary.url) {
+                                        const link = document.createElement('a');
+                                        link.href = primary.url;
+                                        link.download = primary.name || 'comprovante.png';
+                                        document.body.appendChild(link);
+                                        link.click();
+                                        document.body.removeChild(link);
+                                        showToast('Iniciando transferência do anexo...', 'success');
+                                      }
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-slate-800 flex items-center gap-1 font-bold text-[9px] hover:underline"
+                                    title="Baixar primeiro comprovante"
+                                  >
+                                    <FileDown className="w-3 h-3" /> Baixar Orig.
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-5 text-center">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
+                              exp.status === 'Aprovado' ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
+                            }`}>
+                              <div className={`w-1 h-1 rounded-full ${exp.status === 'Aprovado' ? 'bg-emerald-600' : 'bg-amber-500'}`} />
+                              {exp.status}
+                            </span>
+                          </td>
+                          <td className="p-5 text-center">
+                            <button 
+                              onClick={() => setExpenses(expenses.filter(e => e.id !== exp.id))}
+                              className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {filteredExpenses.length === 0 && (
-                      <tr><td colSpan={6} className="p-10 text-center text-slate-400 font-bold">Nenhum registro encontrado.</td></tr>
+                      <tr><td colSpan={8} className="p-10 text-center text-slate-400 font-bold">Nenhum registro encontrado.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -1740,24 +1973,63 @@ export default function App() {
                   <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">UF *</label>
                   <input required maxLength={2} placeholder="UF" value={newExpense.state} onChange={e => setNewExpense({...newExpense, state: e.target.value})} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium text-center" />
                 </div>
-                <div className="md:col-span-2 space-y-2 relative">
-                  <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Anexar Comprovante (Obrigatório)</label>
-                  <label className={`flex flex-col items-center justify-center p-10 border-2 border-dashed rounded-[1rem] cursor-pointer transition-all ${
-                    isScanning ? 'border-slate-800 bg-slate-50/50 animate-pulse' : 'border-slate-100 hover:bg-slate-50'
-                  }`}>
-                    {isScanning ? (
-                      <div className="flex flex-col items-center">
-                        <div className="w-10 h-10 border-4 border-slate-800 border-t-transparent rounded-full animate-spin mb-3"></div>
-                        <span className="text-[11px] font-semibold text-slate-800 tracking-widest">IA LENDO RECIBO...</span>
+                <div className="md:col-span-2 space-y-4">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Anexar Comprovantes (Suporta múltiplos arquivos) *</label>
+                    <p className="text-[11px] text-slate-400 mt-0.5 pl-1">Você pode adicionar mais de um arquivo. Comprovantes em formato de imagem serão lidos automaticamente pela IA.</p>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className={`flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-[1rem] cursor-pointer transition-all ${
+                      isScanning ? 'border-slate-800 bg-slate-50/50 animate-pulse' : 'border-slate-200 hover:bg-slate-50'
+                    }`}>
+                      {isScanning ? (
+                        <div className="flex flex-col items-center">
+                          <div className="w-8 h-8 border-4 border-slate-800 border-t-transparent rounded-full animate-spin mb-3"></div>
+                          <span className="text-[10px] font-bold text-slate-800 tracking-wider">IA INTEGRADA PROCESSANDO...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <Camera className="w-8 h-8 text-slate-400 mb-2" />
+                          <span className="text-xs font-bold text-slate-500 text-center tracking-tight">Adicionar Comprovante</span>
+                          <span className="text-[10px] text-slate-400 text-center mt-1">Smart Scan ativado para fotos</span>
+                        </>
+                      )}
+                      <input type="file" disabled={isScanning} onChange={handleSimulateFile} className="hidden" />
+                    </label>
+
+                    {/* Liste os comprovantes anexados */}
+                    <div className="border border-slate-100 bg-slate-50/50 rounded-[1rem] p-4 flex flex-col justify-between">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Arquivos Enviados ({newExpense.receipts.length})</span>
+                        {newExpense.receipts.length === 0 ? (
+                          <div className="py-6 text-center text-xs text-slate-400 font-medium">Nenhum comprovante anexado ainda. Adicione pelo menos um.</div>
+                        ) : (
+                          <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                            {newExpense.receipts.map((rec, i) => (
+                              <div key={i} className="flex items-center justify-between p-2.5 bg-white border border-slate-200/60 rounded-xl text-xs">
+                                <span className="font-semibold text-slate-700 truncate max-w-[180px]" title={rec.name}>{rec.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setNewExpense(prev => ({
+                                    ...prev,
+                                    receipts: prev.receipts.filter((_, index) => index !== i)
+                                  }))}
+                                  className="text-slate-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-colors"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <>
-                        <Camera className="w-10 h-10 text-slate-300 mb-3" />
-                        <span className="text-xs font-bold text-slate-500 tracking-tight">{newExpense.receiptName || 'Clique para Smart Scan (IA) ou Arraste o arquivo'}</span>
-                      </>
-                    )}
-                    <input type="file" disabled={isScanning} onChange={handleSimulateFile} className="hidden" />
-                  </label>
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                        <span className="font-semibold text-slate-500">Total de anexos:</span>
+                        <span className="font-bold text-slate-800 px-2.5 py-0.5 bg-slate-100 rounded-full">{newExpense.receipts.length}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
