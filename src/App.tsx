@@ -257,6 +257,8 @@ export default function App() {
   // --- ESTADOS DE SELEÇÃO E GERADOR DE PDF ---
   const [selectedReceiptsForPdf, setSelectedReceiptsForPdf] = useState<string[]>([]);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [editingReceiptIndex, setEditingReceiptIndex] = useState<number | null>(null);
+  const [editingReceiptName, setEditingReceiptName] = useState<string>('');
 
   // --- VERIFICAÇÃO INICIAL DO USUÁRIO & ORÇAMENTO ---
   useEffect(() => {
@@ -801,22 +803,26 @@ export default function App() {
 
           // Adiciona Cabeçalho Elegante de Identificação do Comprovante no PDF
           pdf.setFillColor(241, 245, 249); // slate-100
-          pdf.rect(0, 0, 210, 42, 'F');
+          pdf.rect(0, 0, 210, 45, 'F');
 
           pdf.setTextColor(15, 23, 42); // slate-900
           pdf.setFont('helvetica', 'bold');
           pdf.setFontSize(14);
-          pdf.text('PORTAL CORPORATIVO - COMPROVANTE DE GASTO', 15, 15);
+          pdf.text('PORTAL CORPORATIVO - COMPROVANTE DE GASTO', 15, 14);
 
           pdf.setFont('helvetica', 'normal');
-          pdf.setFontSize(10);
+          pdf.setFontSize(9.5);
           pdf.setTextColor(71, 85, 105); // slate-600
-          pdf.text(`Colaborador: ${userData.fullName || 'Não informado'} (${userData.cpf || 'Sem CPF'})`, 15, 23);
-          pdf.text(`Despesa: ${exp.productName} | ID: #${exp.id}`, 15, 29);
-          pdf.text(`Estabelecimento: ${exp.establishment} | Categoria: ${exp.category}`, 15, 35);
+          pdf.text(`Colaborador: ${userData.fullName || 'Não informado'} (${userData.cpf || 'Sem CPF'})`, 15, 21);
+          pdf.text(`Despesa: ${exp.productName} | ID: #${exp.id}`, 15, 26);
+          pdf.text(`Estabelecimento: ${exp.establishment} | Categoria: ${exp.category}`, 15, 31);
+          
+          const formattedDate = exp.date ? new Date(exp.date + 'T00:00:00').toLocaleDateString('pt-BR') : 'Não informada';
+          const formattedTime = exp.time || 'Não informada';
+          pdf.text(`Data do Gasto: ${formattedDate} | Horário: ${formattedTime}`, 15, 36);
 
           pdf.setFillColor(15, 23, 42); // slate-900 para badge de valor
-          pdf.rect(145, 10, 50, 22, 'F');
+          pdf.rect(145, 10, 50, 24, 'F');
           pdf.setTextColor(255, 255, 255);
           pdf.setFont('helvetica', 'bold');
           pdf.setFontSize(8);
@@ -828,7 +834,7 @@ export default function App() {
           if (receipt.url.startsWith('data:image/')) {
             try {
               // Desenha imagem respeitando as margens
-              pdf.addImage(receipt.url, 'JPEG', 15, 50, 180, 230, undefined, 'FAST');
+              pdf.addImage(receipt.url, 'JPEG', 15, 53, 180, 225, undefined, 'FAST');
             } catch (imgError) {
               console.error("Erro ao embutir foto no PDF:", imgError);
               pdf.setFillColor(248, 250, 252);
@@ -2057,21 +2063,72 @@ export default function App() {
                           <div className="py-6 text-center text-xs text-slate-400 font-medium">Nenhum comprovante anexado ainda. Adicione pelo menos um.</div>
                         ) : (
                           <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-                            {newExpense.receipts.map((rec, i) => (
-                              <div key={i} className="flex items-center justify-between p-2.5 bg-white border border-slate-200/60 rounded-xl text-xs">
-                                <span className="font-semibold text-slate-700 truncate max-w-[180px]" title={rec.name}>{rec.name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setNewExpense(prev => ({
-                                    ...prev,
-                                    receipts: prev.receipts.filter((_, index) => index !== i)
-                                  }))}
-                                  className="text-slate-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-colors"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            ))}
+                            {newExpense.receipts.map((rec, i) => {
+                              const isEditing = editingReceiptIndex === i;
+                              return (
+                                <div key={i} className="flex flex-col gap-1.5 p-2 bg-white border border-slate-200/60 rounded-xl text-xs shadow-sm">
+                                  {isEditing ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        type="text"
+                                        value={editingReceiptName}
+                                        onChange={e => setEditingReceiptName(e.target.value)}
+                                        className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-800/10 text-xs font-semibold bg-white"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!editingReceiptName.trim()) return;
+                                          setNewExpense(prev => {
+                                            const updated = [...prev.receipts];
+                                            updated[i] = { ...updated[i], name: editingReceiptName.trim() };
+                                            return { ...prev, receipts: updated };
+                                          });
+                                          setEditingReceiptIndex(null);
+                                        }}
+                                        className="text-emerald-600 hover:text-emerald-700 font-bold px-1.5 py-1 text-xs"
+                                      >
+                                        Salvar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingReceiptIndex(null)}
+                                        className="text-slate-400 hover:text-slate-600 font-semibold px-1 py-1 text-xs"
+                                      >
+                                        Sair
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-between gap-1.5">
+                                      <span className="font-semibold text-slate-700 truncate max-w-[155px]" title={rec.name}>{rec.name}</span>
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingReceiptIndex(i);
+                                            setEditingReceiptName(rec.name);
+                                          }}
+                                          className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                                          title="Editar nome"
+                                        >
+                                          <Edit2 className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setNewExpense(prev => ({
+                                            ...prev,
+                                            receipts: prev.receipts.filter((_, index) => index !== i)
+                                          }))}
+                                          className="text-slate-400 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 transition-colors"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
