@@ -137,9 +137,9 @@ const compressImage = (base64Str: string): Promise<string> => {
       let width = img.width;
       let height = img.height;
 
-      // Mantém proporções limitando o tamanho máximo para 800px para garantir excelente leitura e compactação ideal (~40-85kb)
-      const MAX_WIDTH = 900;
-      const MAX_HEIGHT = 900;
+      // Mantém proporções limitando o tamanho máximo para 750px para garantir excelente leitura e compactação super leve (~25-50kb)
+      const MAX_WIDTH = 750;
+      const MAX_HEIGHT = 750;
 
       if (width > height) {
         if (width > MAX_WIDTH) {
@@ -162,7 +162,57 @@ const compressImage = (base64Str: string): Promise<string> => {
         ctx.fillRect(0, 0, width, height); // garante fundo branco para transparências
         ctx.drawImage(img, 0, 0, width, height);
         // compactação em formato JPEG leve e nítido
-        const compressed = canvas.toDataURL('image/jpeg', 0.55);
+        const compressed = canvas.toDataURL('image/jpeg', 0.45);
+        resolve(compressed);
+      } else {
+        resolve(base64Str);
+      }
+    };
+    img.onerror = () => {
+      resolve(base64Str);
+    };
+  });
+};
+
+const compressImageToMaxMini = (base64Str: string): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!base64Str || !base64Str.startsWith('data:image/')) {
+      resolve(base64Str);
+      return;
+    }
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      // Compactação extrema para recuperar espaço do localStorage
+      const MAX_WIDTH = 500;
+      const MAX_HEIGHT = 500;
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        // Qualidade reduzida para tamanho drástico (~10-15kb) mas mantendo silhueta e legibilidade básica
+        const compressed = canvas.toDataURL('image/jpeg', 0.25);
         resolve(compressed);
       } else {
         resolve(base64Str);
@@ -283,9 +333,47 @@ export default function App() {
     }
   }, []);
 
+  const healAndCompressAllExpenses = async (expensesToCompress: any[]) => {
+    showToast('Espaço esgotado! Auto-otimizando comprovantes antigos...', 'info');
+    try {
+      const updatedExpenses = await Promise.all(
+        expensesToCompress.map(async (exp) => {
+          if (exp.receipts && exp.receipts.length > 0) {
+            const updatedReceipts = await Promise.all(
+              exp.receipts.map(async (rec: any) => {
+                if (rec.url && rec.url.startsWith('data:image/')) {
+                  const compressed = await compressImageToMaxMini(rec.url);
+                  return { ...rec, url: compressed };
+                }
+                return rec;
+              })
+            );
+            return { ...exp, receipts: updatedReceipts };
+          }
+          return exp;
+        })
+      );
+      setExpenses(updatedExpenses);
+      localStorage.setItem('controle_viagens_expenses_v2', JSON.stringify(updatedExpenses));
+      showToast('Espaço do navegador otimizado e liberado com sucesso!', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Limite rígido atingido! Por favor, romova despesas ou comprovantes antigos.', 'error');
+    }
+  };
+
   useEffect(() => {
     if (expenses.length > 0 || localStorage.getItem('controle_viagens_expenses_v2')) {
-      localStorage.setItem('controle_viagens_expenses_v2', JSON.stringify(expenses));
+      try {
+        localStorage.setItem('controle_viagens_expenses_v2', JSON.stringify(expenses));
+      } catch (error: any) {
+        console.warn("Storage quota exceeded, attempting self-heal:", error);
+        if (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED' || error.code === 22) {
+          healAndCompressAllExpenses(expenses);
+        } else {
+          showToast('Erro de memória ao salvar. Exclua comprovantes antigos.', 'error');
+        }
+      }
     }
   }, [expenses]);
   
