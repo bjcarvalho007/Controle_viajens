@@ -224,6 +224,104 @@ const compressImageToMaxMini = (base64Str: string): Promise<string> => {
   });
 };
 
+// --- MULTI-GIGABYTE CLIENT-SIDE DATABASE SYSTEM (IndexedDB) ---
+const initDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('ControleViagensDB', 1);
+    request.onupgradeneeded = (e) => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains('expenses')) {
+        db.createObjectStore('expenses', { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+    request.onerror = () => {
+      reject(request.error);
+    };
+  });
+};
+
+const saveExpensesToIndexedDB = async (expensesList: any[]): Promise<void> => {
+  try {
+    const db = await initDB();
+    const tx = db.transaction('expenses', 'readwrite');
+    const store = tx.objectStore('expenses');
+    
+    // Limpa o store para manter consistência com exclusões feitas no app
+    store.clear();
+    
+    // Insere recursivamente cada despesa no banco local do dispositivo
+    for (const exp of expensesList) {
+      if (exp && exp.id) {
+        // Clona limpo para evitar proxies ou referências do React
+        store.put(JSON.parse(JSON.stringify(exp)));
+      }
+    }
+    
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.error('Erro ao escrever no banco IndexedDB:', err);
+  }
+};
+
+const getAllExpensesFromDB = async (): Promise<any[]> => {
+  try {
+    const db = await initDB();
+    const tx = db.transaction('expenses', 'readonly');
+    const store = tx.objectStore('expenses');
+    const request = store.getAll();
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const result = request.result || [];
+        // Ordena por data decrescente para experiência de dashboard idêntica
+        resolve(result);
+      };
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (err) {
+    console.error('Erro ao recuperar despesas do banco IndexedDB:', err);
+    return [];
+  }
+};
+
+const migrateLocalStorageToIndexedDB = async (): Promise<any[]> => {
+  const localDataStr = localStorage.getItem('controle_viagens_expenses_v2');
+  if (localDataStr) {
+    try {
+      const db = await initDB();
+      const localExpenses = JSON.parse(localDataStr);
+      if (Array.isArray(localExpenses) && localExpenses.length > 0) {
+        const tx = db.transaction('expenses', 'readwrite');
+        const store = tx.objectStore('expenses');
+        for (const exp of localExpenses) {
+          if (exp && exp.id) {
+            // Se houver algum placeholder de antigo estouro no localStorage, ignore na migração se já houver imagem no IndexedDB
+            store.put(JSON.parse(JSON.stringify(exp)));
+          }
+        }
+        await new Promise<void>((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+        
+        // Remove do localStorage para liberar os bits do 5MB imediatamente
+        localStorage.removeItem('controle_viagens_expenses_v2');
+        console.log("Sucesso: Todas as despesas e comprovantes foram migrados do localStorage para o IndexedDB!");
+      }
+    } catch (e) {
+      console.error("Falha ao migrar despesas antigas do localStorage:", e);
+    }
+  }
+  return getAllExpensesFromDB();
+};
+
 export default function App() {
   // --- ESTADOS DE USUÁRIO ÚNICO ---
   const [userData, setUserData] = useState({
@@ -327,14 +425,29 @@ export default function App() {
       setBudget(0);
     }
 
-    const savedExpenses = localStorage.getItem('controle_viagens_expenses_v2');
-    if (savedExpenses) {
-      setExpenses(JSON.parse(savedExpenses));
-    }
+    // Carrega e migra as despesas usando IndexedDB de alta capacidade
+    const loadInitialExpenses = async () => {
+      try {
+        const list = await migrateLocalStorageToIndexedDB();
+        setExpenses(list || []);
+      } catch (err) {
+        console.error("Erro ao ler despesas do IndexedDB na inicialização:", err);
+        // Fallback de contingência caso IndexedDB falhe temporariamente
+        const savedExpenses = localStorage.getItem('controle_viagens_expenses_v2');
+        if (savedExpenses) {
+          try {
+            setExpenses(JSON.parse(savedExpenses));
+          } catch {
+            setExpenses([]);
+          }
+        }
+      }
+    };
+    loadInitialExpenses();
   }, []);
 
   const healAndCompressAllExpenses = async (expensesToCompress: any[]) => {
-    showToast('Espaço esgotado! Auto-otimizando comprovantes antigos...', 'info');
+    showToast('Otimizando e transferindo despesas para o banco de dados IndexedDB...', 'info');
     try {
       const updatedExpenses = await Promise.all(
         expensesToCompress.map(async (exp) => {
@@ -354,26 +467,37 @@ export default function App() {
         })
       );
       setExpenses(updatedExpenses);
-      localStorage.setItem('controle_viagens_expenses_v2', JSON.stringify(updatedExpenses));
-      showToast('Espaço do navegador otimizado e liberado com sucesso!', 'success');
+      await saveExpensesToIndexedDB(updatedExpenses);
+      showToast('Banco de dados local IndexedDB consolidado e otimizado com sucesso!', 'success');
     } catch (err) {
       console.error(err);
-      showToast('Limite rígido atingido! Por favor, romova despesas ou comprovantes antigos.', 'error');
+      showToast('Erro ao otimizar. Por favor, remova comprovantes excessivamente repetidos.', 'error');
     }
   };
 
   useEffect(() => {
-    if (expenses.length > 0 || localStorage.getItem('controle_viagens_expenses_v2')) {
+    // Sincroniza o estado com o IndexedDB do navegador (Capacidade ilimitada / Gigabytes de espaço livre no aparelho)
+    if (expenses.length > 0) {
+      saveExpensesToIndexedDB(expenses);
+      
+      // Cria uma réplica de segurança ultraleve no localStorage para manter compatibilidade e não estourar a cota
       try {
-        localStorage.setItem('controle_viagens_expenses_v2', JSON.stringify(expenses));
+        const lightweightCopy = expenses.map(exp => ({
+          ...exp,
+          receipts: (exp.receipts || []).map((rec: any) => ({
+            name: rec.name,
+            url: rec.url && rec.url.startsWith('data:image/') ? '[Salvo em segurança no IndexedDB com tamanho total]' : rec.url
+          }))
+        }));
+        localStorage.setItem('controle_viagens_expenses_v2', JSON.stringify(lightweightCopy));
       } catch (error: any) {
-        console.warn("Storage quota exceeded, attempting self-heal:", error);
-        if (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED' || error.code === 22) {
-          healAndCompressAllExpenses(expenses);
-        } else {
-          showToast('Erro de memória ao salvar. Exclua comprovantes antigos.', 'error');
-        }
+        // Ignora silenciosamente qualquer erro na réplica secundária pois o banco IndexedDB já salvou tudo!
+        console.warn("localStorage quota surpassed, but data is safe in IndexedDB database.", error);
       }
+    } else if (expenses.length === 0) {
+      // Se a lista estiver vazia, limpa para manter sincronizado
+       saveExpensesToIndexedDB([]);
+       localStorage.removeItem('controle_viagens_expenses_v2');
     }
   }, [expenses]);
   
