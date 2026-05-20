@@ -421,6 +421,22 @@ export default function App() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [editingReceiptIndex, setEditingReceiptIndex] = useState<number | null>(null);
   const [editingReceiptName, setEditingReceiptName] = useState<string>('');
+  
+  // --- ESTADOS DE EDIÇÃO DE DESPESA E CONFIRMAÇÕES ---
+  const [editingExpense, setEditingExpense] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState<any | null>(null);
+  const [showNoReceiptConfirmModal, setShowNoReceiptConfirmModal] = useState(false);
+
+  useEffect(() => {
+    if (editingExpense) {
+      setEditForm({
+        ...editingExpense,
+        amount: formatCurrency((editingExpense.amount * 100).toString())
+      });
+    } else {
+      setEditForm(null);
+    }
+  }, [editingExpense]);
 
   // --- VERIFICAÇÃO INICIAL DO USUÁRIO & ORÇAMENTO ---
   useEffect(() => {
@@ -740,14 +756,7 @@ export default function App() {
   }, [filteredExpenses]);
 
   // --- SUBMISSÃO DE COMPRAS ---
-  const handleSubmitExpense = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!newExpense.productName || !newExpense.amount || !newExpense.city) {
-      showToast('Por favor, preencha os campos obrigatórios!', 'error');
-      return;
-    }
-
+  const executeSubmitExpense = () => {
     const created = {
       id: `EXP-${Math.floor(1000 + Math.random() * 9000)}`,
       productName: newExpense.productName,
@@ -767,9 +776,7 @@ export default function App() {
       travelNumber: newExpense.travelNumber || '',
       km: parseFloat(newExpense.km || '0'),
       expenseType: newExpense.expenseType,
-      receipts: newExpense.receipts.length > 0 ? newExpense.receipts : [
-        { name: 'comprovante_padrao.png', url: '' }
-      ],
+      receipts: newExpense.receipts, // Permite salvar sem anexo
       status: 'Aprovado',
       approvedBy: 'Sistema Automático',
       createdAt: new Date().toISOString()
@@ -798,6 +805,78 @@ export default function App() {
     });
 
     setActiveTab('despesas');
+  };
+
+  const handleSubmitExpense = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!newExpense.productName || !newExpense.amount || !newExpense.city) {
+      showToast('Por favor, preencha os campos obrigatórios!', 'error');
+      return;
+    }
+
+    if (newExpense.receipts.length === 0) {
+      setShowNoReceiptConfirmModal(true);
+      return;
+    }
+
+    executeSubmitExpense();
+  };
+
+  // --- GESTÃO DE COMPROVANTES E EDIÇÃO NO BANCO LOCAL ---
+  const handleAddReceiptToEditForm = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && editForm) {
+      const isImage = file.type.startsWith('image/');
+      const reader = new FileReader();
+      reader.onload = async () => {
+        let finalBase64 = reader.result as string;
+        if (isImage) {
+          showToast('Otimizando imagem...', 'info');
+          finalBase64 = await compressImage(finalBase64);
+        }
+        const newReceipt = { name: file.name, url: finalBase64 };
+        setEditForm((prev: any) => ({
+          ...prev,
+          receipts: [...(prev.receipts || []), newReceipt]
+        }));
+        showToast('Comprovante adicionado com sucesso!', 'success');
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveExpenseEdits = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editForm) return;
+
+    if (!editForm.productName || !editForm.amount || !editForm.city) {
+      showToast('Por favor, preencha os campos obrigatórios!', 'error');
+      return;
+    }
+
+    const updated = {
+      ...editingExpense,
+      productName: editForm.productName,
+      category: editForm.category,
+      amount: parseCurrencyToNumber(editForm.amount),
+      quantity: parseInt(editForm.quantity.toString() || '1'),
+      paymentMethod: editForm.paymentMethod,
+      establishment: editForm.establishment || 'Não informado',
+      city: editForm.city,
+      state: editForm.state.toUpperCase() || 'UF',
+      date: editForm.date,
+      time: editForm.time || '12:00',
+      notes: editForm.notes,
+      travelNumber: editForm.travelNumber || '',
+      km: parseFloat(editForm.km.toString() || '0'),
+      expenseType: editForm.expenseType,
+      receipts: editForm.receipts || []
+    };
+
+    setExpenses(prev => prev.map(exp => exp.id === editingExpense.id ? updated : exp));
+    setEditingExpense(null);
+    showToast('Gasto atualizado e comprovantes salvos com sucesso!', 'success');
   };
 
   // --- SELEÇÃO DE ARQUIVO SIMULADA & SMART SCAN ---
@@ -986,7 +1065,7 @@ export default function App() {
           
           const formattedDate = exp.date ? new Date(exp.date + 'T00:00:00').toLocaleDateString('pt-BR') : 'Não informada';
           const formattedTime = exp.time || 'Não informada';
-          pdf.text(`Data do Gasto: ${formattedDate} | Horário: ${formattedTime}`, 15, 36);
+          pdf.text(`Data do Gasto: ${formattedDate} | Horário: ${formattedTime} | Pagamento: ${exp.paymentMethod || 'Corporativo'}`, 15, 36);
 
           pdf.setFillColor(15, 23, 42); // slate-900 para badge de valor
           pdf.rect(145, 10, 50, 24, 'F');
@@ -1186,7 +1265,10 @@ export default function App() {
                     </p>
                     <div className="grid grid-cols-2 gap-4">
                       {categoryExpenses.map((exp) => {
-                        const hasRealImage = exp.receiptUrl && exp.receiptUrl.startsWith('data:image');
+                        const firstReceipt = exp.receipts && exp.receipts.length > 0 ? exp.receipts[0] : null;
+                        const receiptUrlToUse = exp.receiptUrl || firstReceipt?.url || "";
+                        const receiptNameToUse = exp.receipt || firstReceipt?.name || "Nenhum comprovante anexado";
+                        const hasRealImage = receiptUrlToUse && receiptUrlToUse.startsWith('data:image');
                         
                         return (
                           <div key={`receipt-${exp.id}`} className="p-4 border border-slate-200 rounded-xl bg-white flex flex-col justify-between break-inside-avoid shadow-sm min-h-[220px]">
@@ -1206,7 +1288,7 @@ export default function App() {
                             {hasRealImage ? (
                               <div className="my-2 bg-slate-50 border border-slate-100 rounded-lg p-1 flex items-center justify-center h-28 overflow-hidden">
                                 <img 
-                                  src={exp.receiptUrl} 
+                                  src={receiptUrlToUse} 
                                   alt={`Comprovante ${exp.productName}`}
                                   className="max-h-full max-w-full object-contain mx-auto rounded"
                                   referrerPolicy="no-referrer"
@@ -1225,12 +1307,12 @@ export default function App() {
                                   <div className="flex justify-between"><span>VALOR TOTAL:</span><span className="font-extrabold text-slate-800">R$ {exp.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
                                 </div>
                                 <div className="border-t border-dashed border-slate-300 pt-1 mt-1 text-center font-sans font-bold text-[6px] text-emerald-600 uppercase tracking-widest">
-                                  ✓ COMPROVANTE DIGITAL {exp.receipt ? exp.receipt.toUpperCase() : "REGISTRADO"}
+                                  ✓ COMPROVANTE DIGITAL {receiptNameToUse.toUpperCase()}
                                 </div>
                               </div>
                             )}
                             <div className="text-[7px] text-slate-400 font-mono text-center truncate pt-1 border-t border-slate-100 mt-1">
-                              Arquivo: {exp.receipt || "comprovante_anexado.png"}
+                              Arquivo: {receiptNameToUse}
                             </div>
                           </div>
                         );
@@ -1344,6 +1426,336 @@ export default function App() {
                   Entendi, Começar!
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* MODAL DE CONFIRMAÇÃO PARA DESPESA SEM ANEXO */}
+        {showNoReceiptConfirmModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm px-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-sm p-6 rounded-2xl border bg-white border-slate-200 shadow-2xl space-y-4"
+            >
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-100">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <h2 className="text-lg font-bold tracking-tight text-slate-900">Salvar sem Comprovante?</h2>
+                <p className="text-xs text-slate-500">
+                  Deseja realmente registrar este gasto sem nenhum comprovante fiscal anexo?
+                </p>
+                <p className="text-xs text-slate-550 bg-slate-50 p-2.5 rounded-lg border border-slate-105 text-left font-medium">
+                  Você poderá editá-lo na lista de despesas a qualquer hora para fazer o upload do comprovante mais tarde.
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNoReceiptConfirmModal(false)}
+                  className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                >
+                  Não, Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNoReceiptConfirmModal(false);
+                    executeSubmitExpense();
+                  }}
+                  className="py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer"
+                >
+                  Sim, Salvar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* MODAL DE EDIÇÃO DE DESPESA E COMPROVANTES */}
+        {editingExpense && editForm && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md px-4 py-6 overflow-y-auto"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              className="w-full max-w-2xl bg-white border border-slate-200 shadow-2xl rounded-3xl p-6 md:p-8 space-y-6 max-h-[90vh] overflow-y-auto cursor-default animate-none"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-slate-100 text-slate-800">
+                    <Edit2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-lg text-slate-900">Editar Detalhes do Gasto</h3>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">ID: #{editingExpense.id}</p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setEditingExpense(null)}
+                  className="p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveExpenseEdits} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  
+                  <div className="space-y-1 col-span-1 md:col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Produto / Serviço *</label>
+                    <input 
+                      type="text" 
+                      required 
+                      value={editForm.productName} 
+                      onChange={e => setEditForm({...editForm, productName: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Valor Total *</label>
+                    <input 
+                      type="text" 
+                      required 
+                      value={editForm.amount} 
+                      onChange={e => setEditForm({...editForm, amount: formatCurrency(e.target.value)})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800 text-right font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Quantidade *</label>
+                    <input 
+                      type="number" 
+                      required 
+                      min="1"
+                      value={editForm.quantity} 
+                      onChange={e => setEditForm({...editForm, quantity: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800 text-center font-semibold"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Categoria *</label>
+                    <select 
+                      value={editForm.category} 
+                      onChange={e => setEditForm({...editForm, category: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800"
+                    >
+                      {CATEGORIES.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Meio de Pagamento *</label>
+                    <select 
+                      value={editForm.paymentMethod} 
+                      onChange={e => setEditForm({...editForm, paymentMethod: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800"
+                    >
+                      {PAYMENTS.map(pay => (
+                        <option key={pay} value={pay}>{pay}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1 col-span-1 md:col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Estabelecimento *</label>
+                    <input 
+                      type="text" 
+                      required 
+                      value={editForm.establishment} 
+                      onChange={e => setEditForm({...editForm, establishment: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 col-span-1 md:col-span-2">
+                    <div className="col-span-2 space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Cidade *</label>
+                      <input 
+                        type="text" 
+                        required 
+                        value={editForm.city} 
+                        onChange={e => setEditForm({...editForm, city: e.target.value})}
+                        className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase px-1">UF *</label>
+                      <input 
+                        type="text" 
+                        required 
+                        maxLength={2}
+                        value={editForm.state} 
+                        onChange={e => setEditForm({...editForm, state: e.target.value.toUpperCase()})}
+                        className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800 text-center font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Data *</label>
+                    <input 
+                      type="date" 
+                      required 
+                      value={editForm.date} 
+                      onChange={e => setEditForm({...editForm, date: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Horário *</label>
+                    <input 
+                      type="time" 
+                      required 
+                      value={editForm.time} 
+                      onChange={e => setEditForm({...editForm, time: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Número da Viagem (Opcional)</label>
+                    <input 
+                      type="text" 
+                      value={editForm.travelNumber} 
+                      onChange={e => setEditForm({...editForm, travelNumber: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase px-1">KM Rodados (Opcional)</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={editForm.km} 
+                      onChange={e => setEditForm({...editForm, km: e.target.value})}
+                      className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase px-1">Observações (Opcional)</label>
+                  <textarea 
+                    value={editForm.notes} 
+                    onChange={e => setEditForm({...editForm, notes: e.target.value})}
+                    className="w-full px-4 py-2.5 rounded-xl border text-sm bg-slate-50 border-slate-200 text-slate-900 outline-none focus:ring-2 focus:ring-slate-800 h-20 resize-none"
+                  />
+                </div>
+
+                {/* GESTÃO DE ANEXOS / COMPROVANTES */}
+                <div className="space-y-3 pt-3 border-t border-slate-100">
+                  <div className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                    <div>
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">
+                        Comprovantes ({editForm.receipts?.length || 0})
+                      </span>
+                      <p className="text-[9px] text-slate-450 text-slate-400">Clique para fazer upload de um arquivo para esta despesa</p>
+                    </div>
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-805 text-white font-bold text-[10px] transition-all cursor-pointer">
+                      <Plus className="w-3.5 h-3.5" />
+                      Anexar Novo
+                      <input 
+                        type="file" 
+                        accept="image/*"
+                        onChange={handleAddReceiptToEditForm} 
+                        className="hidden" 
+                      />
+                    </label>
+                  </div>
+
+                  {(editForm.receipts || []).length === 0 ? (
+                    <div className="p-6 border border-dashed border-slate-200 rounded-2xl text-center text-slate-400 bg-slate-50/50">
+                      <AlertTriangle className="w-5 h-5 mx-auto text-slate-300 mb-2" />
+                      <p className="text-xs font-semibold">Sem nenhum anexo nesta despesa.</p>
+                      <p className="text-[10px] mt-0.5">Faça o upload clicando no botão ao lado.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {editForm.receipts.map((rec: any, recIdx: number) => (
+                        <div key={recIdx} className="flex items-center justify-between p-3 border border-slate-100 bg-slate-50/50 rounded-xl hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center gap-2.5 grow mr-4">
+                            {rec.url && rec.url.startsWith('data:image/') ? (
+                              <div className="w-8 h-8 rounded-lg overflow-hidden border border-slate-200 bg-white flex items-center justify-center shrink-0">
+                                <img src={rec.url} alt="Comprovante" className="max-w-full max-h-full object-cover" referrerPolicy="no-referrer" />
+                              </div>
+                            ) : (
+                              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 font-bold text-xs uppercase font-mono">
+                                Doc
+                              </div>
+                            )}
+                            <div className="space-y-0.5 grow">
+                              <input 
+                                type="text" 
+                                value={rec.name} 
+                                onChange={e => {
+                                  const updatedRecs = [...editForm.receipts];
+                                  updatedRecs[recIdx] = { ...updatedRecs[recIdx], name: e.target.value };
+                                  setEditForm({ ...editForm, receipts: updatedRecs });
+                                }}
+                                className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none border-b border-transparent focus:border-slate-300 px-0.5"
+                                title="Editar nome do comprovante"
+                              />
+                              <p className="text-[9px] text-slate-400 font-sans">Clique para renomear este arquivo se desejar</p>
+                            </div>
+                          </div>
+                          
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const updatedRecs = (editForm.receipts || []).filter((_: any, i: number) => i !== recIdx);
+                              setEditForm({ ...editForm, receipts: updatedRecs });
+                              showToast('Comprovante removido da lista!', 'info');
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-red-650 rounded-lg transition-all cursor-pointer"
+                            title="Remover este anexo"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-100">
+                  <button 
+                    type="button"
+                    onClick={() => setEditingExpense(null)}
+                    className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all cursor-pointer"
+                  >
+                    Descartar Alterações
+                  </button>
+                  <button 
+                    type="submit"
+                    className="py-3 bg-slate-900 hover:bg-slate-950 text-white font-bold text-sm rounded-xl shadow-md transition-all cursor-pointer"
+                  >
+                    Salvar Alterações
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}
@@ -2097,12 +2509,26 @@ export default function App() {
                             </span>
                           </td>
                           <td className="p-5 text-center">
-                            <button 
-                              onClick={() => setExpenses(expenses.filter(e => e.id !== exp.id))}
-                              className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                              <button 
+                                onClick={() => setEditingExpense(exp)}
+                                className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                                title="Editar Despesa / Comprovante"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  if (window.confirm("Deseja realmente excluir esta despesa?")) {
+                                    setExpenses(expenses.filter(e => e.id !== exp.id));
+                                  }
+                                }}
+                                className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all cursor-pointer"
+                                title="Excluir Despesa"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
