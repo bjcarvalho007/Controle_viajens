@@ -292,33 +292,47 @@ const getAllExpensesFromDB = async (): Promise<any[]> => {
 };
 
 const migrateLocalStorageToIndexedDB = async (): Promise<any[]> => {
+  const isMigrated = localStorage.getItem('controle_viagens_indexeddb_migrated_v4');
+  if (isMigrated === 'true') {
+    // Se já estiver migrado em definitivo, carrega diretamente do IndexedDB sem tocar no localStorage
+    return getAllExpensesFromDB();
+  }
+
   const localDataStr = localStorage.getItem('controle_viagens_expenses_v2');
   if (localDataStr) {
     try {
       const db = await initDB();
       const localExpenses = JSON.parse(localDataStr);
       if (Array.isArray(localExpenses) && localExpenses.length > 0) {
-        const tx = db.transaction('expenses', 'readwrite');
-        const store = tx.objectStore('expenses');
-        for (const exp of localExpenses) {
-          if (exp && exp.id) {
-            // Se houver algum placeholder de antigo estouro no localStorage, ignore na migração se já houver imagem no IndexedDB
-            store.put(JSON.parse(JSON.stringify(exp)));
+        // Verifica se é apenas um placeholder inútil ou se contém imagens válidas
+        const onlyHasPlaceholders = localExpenses.every(exp => 
+          !exp.receipts || exp.receipts.every((rec: any) => !rec.url || rec.url.includes('[Salvo em segurança no IndexedDB'))
+        );
+
+        if (!onlyHasPlaceholders) {
+          const tx = db.transaction('expenses', 'readwrite');
+          const store = tx.objectStore('expenses');
+          for (const exp of localExpenses) {
+            if (exp && exp.id) {
+              store.put(JSON.parse(JSON.stringify(exp)));
+            }
           }
+          await new Promise<void>((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+          console.log("Sucesso: Todas as despesas e comprovantes legados foram migrados do localStorage para o IndexedDB!");
         }
-        await new Promise<void>((resolve, reject) => {
-          tx.oncomplete = () => resolve();
-          tx.onerror = () => reject(tx.error);
-        });
-        
-        // Remove do localStorage para liberar os bits do 5MB imediatamente
-        localStorage.removeItem('controle_viagens_expenses_v2');
-        console.log("Sucesso: Todas as despesas e comprovantes foram migrados do localStorage para o IndexedDB!");
       }
     } catch (e) {
       console.error("Falha ao migrar despesas antigas do localStorage:", e);
     }
+    // Remove o item problemático para liberar os 5MB do localStorage
+    localStorage.removeItem('controle_viagens_expenses_v2');
   }
+  
+  // Marca como migrado em definitivo para NUNCA mais tentar migrar do localStorage
+  localStorage.setItem('controle_viagens_indexeddb_migrated_v4', 'true');
   return getAllExpensesFromDB();
 };
 
@@ -425,80 +439,21 @@ export default function App() {
       setBudget(0);
     }
 
-    // Carrega e migra as despesas usando IndexedDB de alta capacidade
+    // Carrega as despesas usando IndexedDB de alta capacidade
     const loadInitialExpenses = async () => {
       try {
         const list = await migrateLocalStorageToIndexedDB();
         setExpenses(list || []);
       } catch (err) {
         console.error("Erro ao ler despesas do IndexedDB na inicialização:", err);
-        // Fallback de contingência caso IndexedDB falhe temporariamente
-        const savedExpenses = localStorage.getItem('controle_viagens_expenses_v2');
-        if (savedExpenses) {
-          try {
-            setExpenses(JSON.parse(savedExpenses));
-          } catch {
-            setExpenses([]);
-          }
-        }
       }
     };
     loadInitialExpenses();
   }, []);
 
-  const healAndCompressAllExpenses = async (expensesToCompress: any[]) => {
-    showToast('Otimizando e transferindo despesas para o banco de dados IndexedDB...', 'info');
-    try {
-      const updatedExpenses = await Promise.all(
-        expensesToCompress.map(async (exp) => {
-          if (exp.receipts && exp.receipts.length > 0) {
-            const updatedReceipts = await Promise.all(
-              exp.receipts.map(async (rec: any) => {
-                if (rec.url && rec.url.startsWith('data:image/')) {
-                  const compressed = await compressImageToMaxMini(rec.url);
-                  return { ...rec, url: compressed };
-                }
-                return rec;
-              })
-            );
-            return { ...exp, receipts: updatedReceipts };
-          }
-          return exp;
-        })
-      );
-      setExpenses(updatedExpenses);
-      await saveExpensesToIndexedDB(updatedExpenses);
-      showToast('Banco de dados local IndexedDB consolidado e otimizado com sucesso!', 'success');
-    } catch (err) {
-      console.error(err);
-      showToast('Erro ao otimizar. Por favor, remova comprovantes excessivamente repetidos.', 'error');
-    }
-  };
-
   useEffect(() => {
-    // Sincroniza o estado com o IndexedDB do navegador (Capacidade ilimitada / Gigabytes de espaço livre no aparelho)
-    if (expenses.length > 0) {
-      saveExpensesToIndexedDB(expenses);
-      
-      // Cria uma réplica de segurança ultraleve no localStorage para manter compatibilidade e não estourar a cota
-      try {
-        const lightweightCopy = expenses.map(exp => ({
-          ...exp,
-          receipts: (exp.receipts || []).map((rec: any) => ({
-            name: rec.name,
-            url: rec.url && rec.url.startsWith('data:image/') ? '[Salvo em segurança no IndexedDB com tamanho total]' : rec.url
-          }))
-        }));
-        localStorage.setItem('controle_viagens_expenses_v2', JSON.stringify(lightweightCopy));
-      } catch (error: any) {
-        // Ignora silenciosamente qualquer erro na réplica secundária pois o banco IndexedDB já salvou tudo!
-        console.warn("localStorage quota surpassed, but data is safe in IndexedDB database.", error);
-      }
-    } else if (expenses.length === 0) {
-      // Se a lista estiver vazia, limpa para manter sincronizado
-       saveExpensesToIndexedDB([]);
-       localStorage.removeItem('controle_viagens_expenses_v2');
-    }
+    // Sincroniza o estado com o IndexedDB do dispositivo (Capacidade ilimitada / Gigabytes livres)
+    saveExpensesToIndexedDB(expenses);
   }, [expenses]);
   
   // --- INTELLIGENCE: AUTO-LOOKUP STATE FROM CITY ---
