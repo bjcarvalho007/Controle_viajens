@@ -925,12 +925,14 @@ export default function App() {
           
           setNewExpense(prev => {
             const rawCity = data.city ? data.city.trim() : '';
-            const formattedCity = rawCity ? rawCity.charAt(0).toUpperCase() + rawCity.slice(1) : prev.city;
+            const formattedCity = rawCity ? rawCity.charAt(0).toUpperCase() + rawCity.slice(1) : (prev.city || 'São Paulo');
             
             // Tenta detectar o UF se não vier ou vier vazio
             let detectedState = data.state ? data.state.trim().toUpperCase().substring(0, 2) : '';
             if (!detectedState && formattedCity) {
-              detectedState = getUFFromCity(formattedCity) || prev.state;
+              detectedState = getUFFromCity(formattedCity) || 'SP';
+            } else if (!detectedState) {
+              detectedState = prev.state || 'SP';
             }
 
             // Normaliza a categoria retornada da IA para alguma que exista no array de categorias
@@ -969,16 +971,28 @@ export default function App() {
 
             const formattedAmount = data.amount 
               ? formatCurrency(Math.round(parseFloat(data.amount) * 100).toString())
-              : prev.amount;
+              : (prev.amount || 'R$ 0,00');
+
+            // Garantias estruturais de campos obrigatórios
+            const finalEstablishment = data.vendor ? data.vendor.trim() : (prev.establishment || 'Não especificado');
+            
+            let finalProductName = data.productName ? data.productName.trim() : '';
+            if (!finalProductName) {
+              if (finalEstablishment && finalEstablishment !== 'Não especificado') {
+                finalProductName = `${normalizedCategory} no ${finalEstablishment}`;
+              } else {
+                finalProductName = `${normalizedCategory} Corporativo`;
+              }
+            }
 
             return {
               ...prev,
-              productName: data.productName || prev.productName,
-              establishment: data.vendor || prev.establishment,
+              productName: finalProductName,
+              establishment: finalEstablishment,
               amount: formattedAmount,
               city: formattedCity,
-              state: detectedState || prev.state,
-              date: data.date && data.date.match(/^\d{4}-\d{2}-\d{2}$/) ? data.date : prev.date,
+              state: detectedState,
+              date: data.date && data.date.match(/^\d{4}-\d{2}-\d{2}$/) ? data.date : (prev.date || new Date().toISOString().split('T')[0]),
               category: normalizedCategory
             };
           });
@@ -2620,11 +2634,135 @@ export default function App() {
                     <h3 className="text-base font-black text-slate-800 tracking-tight">O Smart Scan está lendo seu comprovante...</h3>
                   </div>
                   <p className="text-xs text-slate-500 max-w-sm leading-relaxed font-semibold">
-                    Nossa Inteligência Artificial está escaneando a imagem e preenchendo as informações do formulário acima automaticamente para você!
+                    Nossa Inteligência Artificial está escaneando a imagem e preenchendo as informações do formulário abaixo automaticamente para você!
                   </p>
                 </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+              {/* ÁREA DE COMPROVANTE (SMART SCAN) DISPOSTA NO TOPO PARA MAIOR PRATICIDADE */}
+              <div className="space-y-4 pb-6 border-b border-slate-100/80">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-amber-50/40 border border-amber-100/50">
+                  <div className="flex gap-3 items-start">
+                    <div className="p-2 bg-amber-500/10 text-amber-700 rounded-xl shrink-0">
+                      <Sparkles className="w-4 h-4 fill-amber-500 text-amber-500 animate-pulse" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">Preenchimento Automático por IA (Smart Scan) 🚀</h4>
+                      <p className="text-[11px] text-slate-500 leading-relaxed font-semibold mt-0.5">
+                        Adicione o comprovante ou foto do recibo primeiro! Nossa IA vai analisar os dados e preencher todos os campos do formulário abaixo automaticamente para você poupar tempo.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <label className={`flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-[1rem] cursor-pointer transition-all ${
+                    isScanning ? 'border-amber-500 bg-amber-50/10 scale-[0.99] shadow-inner' : 'border-slate-200 hover:border-amber-400 hover:bg-slate-50/60'
+                  }`}>
+                    {isScanning ? (
+                      <div className="flex flex-col items-center text-center space-y-2">
+                        <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-[10px] font-extrabold text-amber-600 tracking-wider">IA LENDO SEU COMPROVANTE...</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center text-center">
+                        <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center mb-2 hover:scale-105 transition-transform duration-200">
+                          <Camera className="w-5 h-5 text-amber-500" />
+                        </div>
+                        <span className="text-xs font-bold text-slate-800 tracking-tight">Anexar / Tirar Foto do Comprovante</span>
+                        <span className="text-[10px] text-slate-500 mt-1 font-semibold">Smart Scan ativo para preenchimento instantâneo</span>
+                      </div>
+                    )}
+                    <input type="file" accept="image/*" disabled={isScanning} onChange={handleSimulateFile} className="hidden" />
+                  </label>
+
+                  {/* Lista de Comprovantes */}
+                  <div className="border border-slate-100 bg-slate-50/50 rounded-[1rem] p-4 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Comprovante Carregado ({newExpense.receipts.length})</span>
+                      {newExpense.receipts.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-slate-400 font-medium">Nenhum comprovante anexado ainda. Adicione uma imagem acima!</div>
+                      ) : (
+                        <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                          {newExpense.receipts.map((rec, i) => {
+                            const isEditing = editingReceiptIndex === i;
+                            return (
+                              <div key={i} className="flex flex-col gap-1.5 p-2 bg-white border border-slate-200/60 rounded-xl text-xs shadow-sm">
+                                {isEditing ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="text"
+                                      value={editingReceiptName}
+                                      onChange={e => setEditingReceiptName(e.target.value)}
+                                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-800/10 text-xs font-semibold bg-white"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (!editingReceiptName.trim()) return;
+                                        setNewExpense(prev => {
+                                          const updated = [...prev.receipts];
+                                          updated[i] = { ...updated[i], name: editingReceiptName.trim() };
+                                          return { ...prev, receipts: updated };
+                                        });
+                                        setEditingReceiptIndex(null);
+                                      }}
+                                      className="text-emerald-600 hover:text-emerald-700 font-bold px-1.5 py-1 text-xs"
+                                    >
+                                      Salvar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingReceiptIndex(null)}
+                                      className="text-slate-400 hover:text-slate-600 font-semibold px-1 py-1 text-xs"
+                                    >
+                                      Sair
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    <span className="font-semibold text-slate-700 truncate max-w-[155px]" title={rec.name}>{rec.name}</span>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingReceiptIndex(i);
+                                          setEditingReceiptName(rec.name);
+                                        }}
+                                        className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                                        title="Editar nome"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setNewExpense(prev => ({
+                                          ...prev,
+                                          receipts: prev.receipts.filter((_, index) => index !== i)
+                                        }))}
+                                        className="text-slate-400 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 transition-colors"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-slate-500">Total de anexos:</span>
+                      <span className="font-bold text-slate-800 px-2.5 py-0.5 bg-slate-100 rounded-full">{newExpense.receipts.length}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* GRID ORIGINAL DOS CAMPOS DO FORMULÁRIO */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
                 <div className="md:col-span-2 space-y-2">
                   <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Descrição do Item *</label>
                   <input required placeholder="Ex: Almoço Cliente, Hotel, Táxi..." value={newExpense.productName} onChange={e => setNewExpense({...newExpense, productName: e.target.value})} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium" />
@@ -2641,6 +2779,7 @@ export default function App() {
                       setNewExpense({...newExpense, amount: formatted});
                     }} 
                     className="w-full px-5 py-3 rounded-xl border bg-white text-base text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-semibold tracking-tight" 
+                    id="form-amount"
                   />
                 </div>
                 <div className="space-y-2">
@@ -2686,126 +2825,6 @@ export default function App() {
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">UF *</label>
                   <input required maxLength={2} placeholder="UF" value={newExpense.state} onChange={e => setNewExpense({...newExpense, state: e.target.value})} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium text-center" />
-                </div>
-                <div className="md:col-span-2 space-y-4">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-amber-50/40 border border-amber-100/50">
-                    <div className="flex gap-3 items-start">
-                      <div className="p-2 bg-amber-500/10 text-amber-700 rounded-xl shrink-0">
-                        <Sparkles className="w-4 h-4 fill-amber-500 text-amber-500 animate-pulse" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-800">Preenchimento Automático por IA (Smart Scan)</h4>
-                        <p className="text-[11px] text-slate-500 leading-relaxed font-semibold mt-0.5">
-                          Para poupar tempo, adicione o comprovante de pagamento no botão ao lado. O sistema analisará a imagem e preencherá o formulário acima automaticamente!
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <label className={`flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-[1rem] cursor-pointer transition-all ${
-                      isScanning ? 'border-amber-500 bg-amber-50/10 animate-pulse scale-[0.99] shadow-inner animate-none' : 'border-slate-200 hover:border-slate-350 hover:bg-slate-50'
-                    }`}>
-                      {isScanning ? (
-                        <div className="flex flex-col items-center text-center space-y-2">
-                          <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-                          <span className="text-[10px] font-extrabold text-amber-600 tracking-wider">IA LENDO SEU COMPROVANTE...</span>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center text-center">
-                          <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center mb-2 hover:scale-105 transition-transform duration-200">
-                            <Camera className="w-5 h-5" />
-                          </div>
-                          <span className="text-xs font-bold text-slate-800 tracking-tight">Anexar / Tirar Foto do Comprovante</span>
-                          <span className="text-[10px] text-slate-500 mt-1 font-semibold">Smart Scan ativado para preenchimento de dados</span>
-                        </div>
-                      )}
-                      <input type="file" accept="image/*" disabled={isScanning} onChange={handleSimulateFile} className="hidden" />
-                    </label>
-
-                    {/* Liste os comprovantes anexados */}
-                    <div className="border border-slate-100 bg-slate-50/50 rounded-[1rem] p-4 flex flex-col justify-between">
-                      <div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Arquivos Enviados ({newExpense.receipts.length})</span>
-                        {newExpense.receipts.length === 0 ? (
-                          <div className="py-6 text-center text-xs text-slate-400 font-medium">Nenhum comprovante anexado ainda. Adicione pelo menos um.</div>
-                        ) : (
-                          <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-                            {newExpense.receipts.map((rec, i) => {
-                              const isEditing = editingReceiptIndex === i;
-                              return (
-                                <div key={i} className="flex flex-col gap-1.5 p-2 bg-white border border-slate-200/60 rounded-xl text-xs shadow-sm">
-                                  {isEditing ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <input
-                                        type="text"
-                                        value={editingReceiptName}
-                                        onChange={e => setEditingReceiptName(e.target.value)}
-                                        className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-800/10 text-xs font-semibold bg-white"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (!editingReceiptName.trim()) return;
-                                          setNewExpense(prev => {
-                                            const updated = [...prev.receipts];
-                                            updated[i] = { ...updated[i], name: editingReceiptName.trim() };
-                                            return { ...prev, receipts: updated };
-                                          });
-                                          setEditingReceiptIndex(null);
-                                        }}
-                                        className="text-emerald-600 hover:text-emerald-700 font-bold px-1.5 py-1 text-xs"
-                                      >
-                                        Salvar
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingReceiptIndex(null)}
-                                        className="text-slate-400 hover:text-slate-600 font-semibold px-1 py-1 text-xs"
-                                      >
-                                        Sair
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center justify-between gap-1.5">
-                                      <span className="font-semibold text-slate-700 truncate max-w-[155px]" title={rec.name}>{rec.name}</span>
-                                      <div className="flex items-center gap-1">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setEditingReceiptIndex(i);
-                                            setEditingReceiptName(rec.name);
-                                          }}
-                                          className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
-                                          title="Editar nome"
-                                        >
-                                          <Edit2 className="w-3.5 h-3.5" />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => setNewExpense(prev => ({
-                                            ...prev,
-                                            receipts: prev.receipts.filter((_, index) => index !== i)
-                                          }))}
-                                          className="text-slate-400 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 transition-colors"
-                                        >
-                                          <X className="w-3.5 h-3.5" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                        <span className="font-semibold text-slate-500">Total de anexos:</span>
-                        <span className="font-bold text-slate-800 px-2.5 py-0.5 bg-slate-100 rounded-full">{newExpense.receipts.length}</span>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
 
