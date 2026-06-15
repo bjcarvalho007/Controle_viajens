@@ -24,6 +24,7 @@ import {
   Search, 
   Filter, 
   Plus, 
+  Sparkles, 
   Download, 
   FileText, 
   CheckCircle, 
@@ -922,16 +923,65 @@ export default function App() {
           
           const data = await response.json();
           
-          setNewExpense(prev => ({
-            ...prev,
-            productName: data.productName || prev.productName,
-            establishment: data.vendor || prev.establishment,
-            amount: data.amount ? formatCurrency((data.amount * 100).toString()) : prev.amount,
-            city: data.city || prev.city,
-            state: data.state || prev.state,
-            date: data.date || prev.date,
-            category: data.category || prev.category
-          }));
+          setNewExpense(prev => {
+            const rawCity = data.city ? data.city.trim() : '';
+            const formattedCity = rawCity ? rawCity.charAt(0).toUpperCase() + rawCity.slice(1) : prev.city;
+            
+            // Tenta detectar o UF se não vier ou vier vazio
+            let detectedState = data.state ? data.state.trim().toUpperCase().substring(0, 2) : '';
+            if (!detectedState && formattedCity) {
+              detectedState = getUFFromCity(formattedCity) || prev.state;
+            }
+
+            // Normaliza a categoria retornada da IA para alguma que exista no array de categorias
+            const normalizedCategory = (() => {
+              const cat = data.category || '';
+              const clean = cat.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+              
+              if (clean === 'materiais' || clean.includes('estoque') || clean.includes('material')) return 'Estoque';
+              if (clean.includes('alimentacao') || clean.includes('refeicao') || clean.includes('almoco') || clean.includes('jantar') || clean.includes('comida') || clean.includes('restaurante') || clean.includes('bebida') || clean.includes('cafe')) return 'Alimentação';
+              if (clean.includes('hotel') || clean.includes('pousada') || clean.includes('hospedagem') || clean.includes('estadia') || clean.includes('albergue')) return 'Hospedagem';
+              if (clean.includes('combustivel') || clean.includes('gasolina') || clean.includes('diesel') || clean.includes('etanol') || clean.includes('posto') || clean.includes('abastecimento')) return 'Combustível';
+              if (clean.includes('pedagio')) return 'Pedágio';
+              if (clean.includes('manutencao') || clean.includes('conserto') || clean.includes('reparo') || clean.includes('mecanico')) return 'Manutenção';
+              if (clean.includes('ferramenta') || clean.includes('utensilio') || clean.includes('chave')) return 'Ferramentas';
+              if (clean.includes('emergencia')) return 'Emergências';
+              if (clean.includes('transporte') || clean.includes('taxi') || clean.includes('uber') || clean.includes('viagem') || clean.includes('carro') || clean.includes('passagem')) return 'Transporte';
+
+              const CATEGORIES_LOCAL = [
+                'Alimentação',
+                'Combustível',
+                'Hospedagem',
+                'Pedágio',
+                'Manutenção',
+                'Ferramentas',
+                'Estoque',
+                'Emergências',
+                'Transporte',
+                'Outros'
+              ];
+              const found = CATEGORIES_LOCAL.find(c => {
+                const cClean = c.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                return cClean === clean || cClean.includes(clean) || clean.includes(cClean);
+              });
+              return found || 'Outros';
+            })();
+
+            const formattedAmount = data.amount 
+              ? formatCurrency(Math.round(parseFloat(data.amount) * 100).toString())
+              : prev.amount;
+
+            return {
+              ...prev,
+              productName: data.productName || prev.productName,
+              establishment: data.vendor || prev.establishment,
+              amount: formattedAmount,
+              city: formattedCity,
+              state: detectedState || prev.state,
+              date: data.date && data.date.match(/^\d{4}-\d{2}-\d{2}$/) ? data.date : prev.date,
+              category: normalizedCategory
+            };
+          });
 
           showToast('Dados extraídos com sucesso via Smart Scan!', 'success');
         } catch (err) {
@@ -2559,7 +2609,21 @@ export default function App() {
               <h1 className="text-3xl font-extrabold tracking-tight font-display">Registrar Transação</h1>
               <p className="text-sm text-slate-600 font-medium">Insira os detalhes técnicos do gasto corporativo para processamento.</p>
             </div>
-            <form onSubmit={handleSubmitExpense} className="p-10 rounded-[1.5rem] border shadow-sm space-y-8 bg-white border-slate-100">
+            <form onSubmit={handleSubmitExpense} className="p-10 rounded-[1.5rem] border shadow-sm space-y-8 bg-white border-slate-100 relative overflow-hidden">
+              {isScanning && (
+                <div className="absolute inset-0 bg-white/80 backdrop-blur-md z-30 flex flex-col items-center justify-center text-center p-8 select-none">
+                  <div className="w-16 h-16 rounded-full bg-slate-50 border border-slate-200 shadow-xl flex items-center justify-center relative mb-4 animate-bounce">
+                    <Sparkles className="w-6 h-6 text-amber-500 fill-amber-400" />
+                  </div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></div>
+                    <h3 className="text-base font-black text-slate-800 tracking-tight">O Smart Scan está lendo seu comprovante...</h3>
+                  </div>
+                  <p className="text-xs text-slate-500 max-w-sm leading-relaxed font-semibold">
+                    Nossa Inteligência Artificial está escaneando a imagem e preenchendo as informações do formulário acima automaticamente para você!
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="md:col-span-2 space-y-2">
                   <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Descrição do Item *</label>
@@ -2624,28 +2688,39 @@ export default function App() {
                   <input required maxLength={2} placeholder="UF" value={newExpense.state} onChange={e => setNewExpense({...newExpense, state: e.target.value})} className="w-full px-5 py-3.5 rounded-xl border bg-white text-sm text-slate-900 border-slate-200 focus:ring-4 focus:ring-slate-800/5 focus:border-slate-800 transition-all outline-none font-medium text-center" />
                 </div>
                 <div className="md:col-span-2 space-y-4">
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest pl-1">Anexar Comprovantes (Suporta múltiplos arquivos) *</label>
-                    <p className="text-[11px] text-slate-400 mt-0.5 pl-1">Você pode adicionar mais de um arquivo. Comprovantes em formato de imagem serão lidos automaticamente pela IA.</p>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-amber-50/40 border border-amber-100/50">
+                    <div className="flex gap-3 items-start">
+                      <div className="p-2 bg-amber-500/10 text-amber-700 rounded-xl shrink-0">
+                        <Sparkles className="w-4 h-4 fill-amber-500 text-amber-500 animate-pulse" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800">Preenchimento Automático por IA (Smart Scan)</h4>
+                        <p className="text-[11px] text-slate-500 leading-relaxed font-semibold mt-0.5">
+                          Para poupar tempo, adicione o comprovante de pagamento no botão ao lado. O sistema analisará a imagem e preencherá o formulário acima automaticamente!
+                        </p>
+                      </div>
+                    </div>
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label className={`flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-[1rem] cursor-pointer transition-all ${
-                      isScanning ? 'border-slate-800 bg-slate-50/50 animate-pulse' : 'border-slate-200 hover:bg-slate-50'
+                      isScanning ? 'border-amber-500 bg-amber-50/10 animate-pulse scale-[0.99] shadow-inner animate-none' : 'border-slate-200 hover:border-slate-350 hover:bg-slate-50'
                     }`}>
                       {isScanning ? (
-                        <div className="flex flex-col items-center">
-                          <div className="w-8 h-8 border-4 border-slate-800 border-t-transparent rounded-full animate-spin mb-3"></div>
-                          <span className="text-[10px] font-bold text-slate-800 tracking-wider">IA INTEGRADA PROCESSANDO...</span>
+                        <div className="flex flex-col items-center text-center space-y-2">
+                          <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                          <span className="text-[10px] font-extrabold text-amber-600 tracking-wider">IA LENDO SEU COMPROVANTE...</span>
                         </div>
                       ) : (
-                        <>
-                          <Camera className="w-8 h-8 text-slate-400 mb-2" />
-                          <span className="text-xs font-bold text-slate-500 text-center tracking-tight">Adicionar Comprovante</span>
-                          <span className="text-[10px] text-slate-400 text-center mt-1">Smart Scan ativado para fotos</span>
-                        </>
+                        <div className="flex flex-col items-center text-center">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center mb-2 hover:scale-105 transition-transform duration-200">
+                            <Camera className="w-5 h-5" />
+                          </div>
+                          <span className="text-xs font-bold text-slate-800 tracking-tight">Anexar / Tirar Foto do Comprovante</span>
+                          <span className="text-[10px] text-slate-500 mt-1 font-semibold">Smart Scan ativado para preenchimento de dados</span>
+                        </div>
                       )}
-                      <input type="file" disabled={isScanning} onChange={handleSimulateFile} className="hidden" />
+                      <input type="file" accept="image/*" disabled={isScanning} onChange={handleSimulateFile} className="hidden" />
                     </label>
 
                     {/* Liste os comprovantes anexados */}
