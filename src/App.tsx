@@ -992,18 +992,26 @@ export default function App() {
               body: JSON.stringify({ image: base64Raw, mimeType: 'image/jpeg' }) // Como comprimimos, agora é imagem/jpeg
             });
 
-            if (!response.ok) throw new Error('Falha no processamento API do servidor');
+            if (!response.ok) {
+              const errBody = await response.json().catch(() => ({}));
+              throw new Error(errBody.error || `Falha no processamento (Código ${response.status})`);
+            }
             data = await response.json();
-          } catch (serverErr) {
-            console.warn("Servidor indisponível ou rota /api ausente. Tentando preenchimento client-side...", serverErr);
+          } catch (serverErr: any) {
+            console.warn("Servidor indisponível ou rota /api falhou. Erro:", serverErr);
             
+            // Se o erro foi especificamente chave não configurada, propague o erro imediatamente para não cair em fallback genérico
+            if (serverErr.message && (serverErr.message.includes('GEMINI_API_KEY') || serverErr.message.includes('Chave GEMINI_API_KEY'))) {
+              throw serverErr;
+            }
+
             const clientApiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
             if (clientApiKey) {
               try {
-                showToast('Falha na API integrada. Usando Gemini client-side...', 'info');
+                showToast('Usando preenchimento direto via Gemini...', 'info');
                 const promptText = `Analyze this receipt image and extract the information in JSON format. 
-                Be precise. If a field is not found, leave it empty.
-                Translate everything to Portuguese.
+                Be very precise and only extract authentic values written in the invoice/receipt. If a field is not found or unclear, leave it empty or null.
+                Translate the extracted texts to Portuguese.
                 
                 Fields to extract:
                 - productName: Clear title of the main expense (e.g., Almoço Executivo, Hospedagem Hotel X)
@@ -1048,20 +1056,20 @@ export default function App() {
                 if (textOutput) {
                   data = JSON.parse(textOutput);
                 } else {
-                  throw new Error('Estrutura de resposta inválida');
+                  throw new Error('Retorno do Gemini com formato inválido');
                 }
-              } catch (clientGeminiErr) {
-                console.error("Gemini direto do cliente falhou. Usando simulação inteligente local...", clientGeminiErr);
-                data = runLocalHeuristics(file.name);
+              } catch (clientGeminiErr: any) {
+                console.error("Gemini direto do cliente falhou:", clientGeminiErr);
+                throw new Error("Não foi possível conectar às APIs da Inteligência Artificial. Por favor, adicione seu comprovante e preencha os dados manualmente.");
               }
             } else {
-              // Sem chave no client, usaremos a previsão local por heurísticas
-              data = runLocalHeuristics(file.name);
+              // Sem chave no client e API falhou
+              throw new Error(serverErr.message || "Não foi possível conectar à Inteligência Artificial. Por favor, preencha os dados do comprovante manualmente.");
             }
           }
 
-          if (!data) {
-            data = runLocalHeuristics(file.name);
+          if (!data || (!data.productName && !data.vendor && !data.amount)) {
+            throw new Error("Não foi possível detectar informações válidas neste comprovante. Certifique-se de que a imagem está legível ou preencha manualmente.");
           }
           
           setNewExpense(prev => {
@@ -1138,30 +1146,28 @@ export default function App() {
             };
           });
 
-          showToast('Smart Scan: Dados extraídos do comprovante!', 'success');
-        } catch (err) {
+          showToast('Smart Scan: Dados extraídos com sucesso do comprovante!', 'success');
+        } catch (err: any) {
           console.error("Erro completo do processo de extração:", err);
-          // Em último caso, se houver qualquer erro inesperado, use a heurística local para que NUNCA dê erro de formulário incompleto
-          try {
-            const fallbackData = runLocalHeuristics(file.name);
-            setNewExpense(prev => {
-              const formattedAmt = fallbackData.amount 
-                ? formatCurrency(Math.round(fallbackData.amount * 100).toString())
-                : 'R$ 45,00';
-              return {
-                ...prev,
-                productName: fallbackData.productName,
-                establishment: fallbackData.vendor,
-                amount: formattedAmt,
-                city: fallbackData.city,
-                state: fallbackData.state,
-                date: fallbackData.date,
-                category: fallbackData.category
-              };
-            });
-            showToast('Smart Scan: Dados do recibo pré-preenchidos automaticamente!', 'success');
-          } catch (nestedErr) {
-            showToast('Por favor, preencha os dados restantes manualmente.', 'info');
+          const rawError = err?.message || '';
+          
+          if (rawError.includes('GEMINI_API_KEY') || rawError.includes('Chave GEMINI_API_KEY')) {
+            // Informar o desenvolvedor de forma clara e limpa
+            showToast('Erro de configuração: Variável GEMINI_API_KEY ausente na Vercel.', 'error');
+            // Abra uma caixa de diálogo ou alerta discreto com as instruções detalhadas
+            alert(
+              "⚠️ ATENÇÃO: Habilite o preenchimento por Inteligência Artificial na Vercel!\n\n" +
+              "O preenchimento automático por Inteligência Artificial (Smart Scan) não está funcionando porque sua chave do Google Gemini (GEMINI_API_KEY) ainda não foi configurada na Vercel.\n\n" +
+              "Como resolver:\n" +
+              "1. Copie sua chave de API do Google AI Studio.\n" +
+              "2. Acesse o Painel do seu projeto na Vercel (vercel.com).\n" +
+              "3. Vá em 'Settings' (Configurações) > 'Environment Variables' (Variáveis de Ambiente).\n" +
+              "4. Adicione uma variável com o nome: GEMINI_API_KEY e cole sua chave como o valor.\n" +
+              "5. Faça um novo Deploy da sua aplicação para aplicar a mudança!\n\n" +
+              "Enquanto isso, você pode continuar preenchendo todos os campos do formulário manualmente."
+            );
+          } else {
+            showToast('Smart Scan indisponível temporariamente. Preencha os dados abaixo manualmente.', 'info');
           }
         } finally {
           setIsScanning(false);
